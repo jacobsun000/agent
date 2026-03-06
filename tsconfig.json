@@ -4,13 +4,14 @@
       "module": "nodenext",
       "moduleResolution": "nodenext",
       "baseUrl": ".",
-      "paths": {
-        "@/*": [
-          "src/*"
-        ]
-      },
-      "outDir": "dist",
-      "rootDir": "src",
-      "strict": true
-    }
+    "paths": {
+      "@/*": [
+        "src/*"
+      ]
+    },
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "skipLibCheck": true
+  }
   }

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "build": "tsc",
-    "start": "node -r tsconfig-paths/register dist/main.js",
+    "start": "tsx src/main.ts",
     "check": "tsc --noEmit"
   },
   "keywords": [],
@@ -20,6 +20,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^3.0.41",
     "ai": "^6.0.116",
     "consola": "^3.4.2",
     "jsonc-parser": "^3.3.1",

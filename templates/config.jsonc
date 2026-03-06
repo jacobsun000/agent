@@ -1,0 +1,8 @@
+{
+  // Copy this file to ~/.config/agent/config.jsonc and fill in your values.
+  "provider": {
+    "name": "openai",
+    "apiKey": "sk-...",
+    "model": "gpt-4.1-mini"
+  }
+}
