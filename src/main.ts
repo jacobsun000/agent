@@ -1,46 +1,65 @@
-import { type ModelMessage } from "ai";
-import { createConsola } from "consola";
 import { createOpenAI } from "@ai-sdk/openai";
 
 import { loadConfig } from "@/utils/config";
 import { Agent } from "@/core/agent";
+import { MessageBus } from "@/bus/bus";
+import { CliChannel } from "@/channels/cli";
+import { TelegramChannel } from "@/channels/telegram";
+import { createLogger } from "@/utils/logger";
 
-const logger = createConsola({
-  defaults: {
-    tag: "main"
-  }
-});
+const logger = createLogger("main");
 
 async function main() {
   const config = loadConfig();
-  const messages: ModelMessage[] = [];
   const openai = createOpenAI({ apiKey: config.provider.apiKey });
   const model = openai(config.provider.model);
-  const agent = new Agent({ model })
+  const agent = new Agent({ model });
+  const bus = new MessageBus({ agent });
 
-  logger.box(
-    [
-      "CLI agent ready.",
-      `Provider: ${config.provider.name}`,
-      `Model: ${config.provider.model}`,
-      "Type a request, or use `exit` to quit."
-    ].join("\n")
+  bus.registerChannel(
+    new CliChannel({
+      onMessage: async (message) => {
+        await bus.dispatch(message);
+      }
+    })
   );
 
-  while (true) {
-    const userInput = await logger.prompt("", { placeholder: "Ask me to do something..." });
+  if (config.channels.telegram.enabled) {
+    bus.registerChannel(
+      new TelegramChannel({
+        token: config.channels.telegram.token,
+        onMessage: async (message) => {
+          await bus.dispatch(message);
+        }
+      })
+    );
+  }
 
-    if (userInput === "exit") {
-      break;
+  logger.info(`Provider: ${config.provider.name}`);
+  logger.info(`Model: ${config.provider.model}`);
+
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) {
+      return;
     }
 
-    messages.push({
-      role: "user",
-      content: [{ type: "text", text: userInput as string }]
-    });
+    shuttingDown = true;
+    await bus.stop();
+  };
 
-    const response = await agent.runLoop(messages);
-    messages.push(...response);
+  process.once("SIGINT", () => {
+    void shutdown();
+  });
+
+  process.once("SIGTERM", () => {
+    void shutdown();
+  });
+
+  try {
+    await bus.start();
+  } finally {
+    await shutdown();
   }
 }
 

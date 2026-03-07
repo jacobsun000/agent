@@ -9,6 +9,12 @@ export type AgentConfig = {
     apiKey: string;
     model: string;
   };
+  channels: {
+    telegram: {
+      enabled: boolean;
+      token: string;
+    };
+  };
 };
 
 export const CONFIG_PATH = path.join(
@@ -70,11 +76,42 @@ function validateConfig(value: unknown): AgentConfig {
     throw new Error("`provider.model` must be a non-empty string.");
   }
 
+  const channels = (value as { channels?: unknown }).channels;
+  if (!channels || typeof channels !== "object") {
+    throw new Error("Config must include a `channels` object.");
+  }
+
+  const telegram = (channels as { telegram?: unknown }).telegram;
+  if (!telegram || typeof telegram !== "object") {
+    throw new Error("Config must include a `channels.telegram` object.");
+  }
+
+  const telegramEnabled = (telegram as { enabled?: unknown }).enabled;
+  const telegramToken = (telegram as { token?: unknown }).token;
+
+  if (typeof telegramEnabled !== "boolean") {
+    throw new Error("`channels.telegram.enabled` must be a boolean.");
+  }
+
+  if (typeof telegramToken !== "string") {
+    throw new Error("`channels.telegram.token` must be a string.");
+  }
+
+  if (telegramEnabled && telegramToken.trim() === "") {
+    throw new Error("`channels.telegram.token` must be non-empty when Telegram is enabled.");
+  }
+
   return {
     provider: {
       name,
       apiKey,
       model
+    },
+    channels: {
+      telegram: {
+        enabled: telegramEnabled,
+        token: telegramToken
+      }
     }
   };
 }

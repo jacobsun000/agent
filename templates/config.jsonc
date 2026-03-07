@@ -4,5 +4,11 @@
     "name": "openai",
     "apiKey": "sk-...",
     "model": "gpt-4.1-mini"
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "token": "123456:telegram-bot-token"
+    }
   }
 }
