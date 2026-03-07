@@ -58,10 +58,10 @@ export class Bus {
   }
 
   async start() {
+    logger.info("Starting channels...");
     await Promise.all(
       this.channels.map(async (channel) => {
         await channel.start();
-        logger.info(`${channel.name} channel ready`);
       })
     );
   }

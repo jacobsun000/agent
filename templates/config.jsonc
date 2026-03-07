@@ -6,6 +6,12 @@
     "model": "gpt-4.1-mini"
   },
   "channels": {
+    "http": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 8100,
+      "url": "http://127.0.0.1:8100"
+    },
     "telegram": {
       "enabled": true,
       "token": "123456:telegram-bot-token"

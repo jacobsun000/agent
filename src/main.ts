@@ -1,66 +1,73 @@
-import { createOpenAI } from "@ai-sdk/openai";
+import yargs from "yargs";
+import { hideBin } from "yargs/helpers";
 
+import { runCliClient } from "@/services/cli-client";
+import { startGateway } from "@/services/gateway";
 import { loadConfig } from "@/utils/config";
-import { Agent } from "@/core/agent";
-import { MessageBus } from "@/bus/bus";
-import { CliChannel } from "@/channels/cli";
-import { TelegramChannel } from "@/channels/telegram";
 import { createLogger } from "@/utils/logger";
 
 const logger = createLogger("main");
 
 async function main() {
-  const config = loadConfig();
-  const openai = createOpenAI({ apiKey: config.provider.apiKey });
-  const model = openai(config.provider.model);
-  const agent = new Agent({ model });
-  const bus = new MessageBus({ agent });
+  await yargs(hideBin(process.argv))
+    .scriptName("agent")
+    .command(
+      "gateway",
+      "Start the main gateway service",
+      async (argv) => {
+        const config = loadConfig();
+        const gateway = await startGateway();
 
-  bus.registerChannel(
-    new CliChannel({
-      onMessage: async (message) => {
-        await bus.dispatch(message);
-      }
-    })
-  );
+        let shuttingDown = false;
+        const shutdown = async () => {
+          if (shuttingDown) {
+            return;
+          }
 
-  if (config.channels.telegram.enabled) {
-    bus.registerChannel(
-      new TelegramChannel({
-        token: config.channels.telegram.token,
-        onMessage: async (message) => {
-          await bus.dispatch(message);
+          shuttingDown = true;
+          await gateway.stop();
+        };
+
+        process.once("SIGINT", () => {
+          void shutdown();
+        });
+
+        process.once("SIGTERM", () => {
+          void shutdown();
+        });
+
+        try {
+          await gateway.waitUntilStopped();
+        } finally {
+          await shutdown();
         }
-      })
-    );
-  }
-
-  logger.info(`Provider: ${config.provider.name}`);
-  logger.info(`Model: ${config.provider.model}`);
-
-  let shuttingDown = false;
-  const shutdown = async () => {
-    if (shuttingDown) {
-      return;
-    }
-
-    shuttingDown = true;
-    await bus.stop();
-  };
-
-  process.once("SIGINT", () => {
-    void shutdown();
-  });
-
-  process.once("SIGTERM", () => {
-    void shutdown();
-  });
-
-  try {
-    await bus.start();
-  } finally {
-    await shutdown();
-  }
+      }
+    )
+    .command(
+      "cli",
+      "Open a local CLI session that talks to the gateway",
+      (command) =>
+        command
+          .option("url", {
+            type: "string",
+            describe: "Gateway base URL"
+          })
+          .option("session", {
+            type: "string",
+            describe: "Conversation/session identifier for the CLI chat"
+          }),
+      async (argv) => {
+        const config = loadConfig();
+        await runCliClient({
+          baseUrl: argv.url ?? config.channels.http.url,
+          chatId: argv.session
+        });
+      }
+    )
+    .demandCommand(1, "Choose `gateway` or `cli`.")
+    .strict()
+    .help()
+    .parseAsync();
 }
 
 main().catch((error) => {

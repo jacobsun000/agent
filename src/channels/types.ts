@@ -1,6 +1,6 @@
 import { OutboundMessageStream } from "@/bus/bus";
 
-export type ChannelName = "cli" | "telegram";
+export type ChannelName = "http" | "telegram";
 
 export interface Channel {
   readonly name: ChannelName;

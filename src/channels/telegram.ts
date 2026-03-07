@@ -1,9 +1,9 @@
 import { Telegraf } from "telegraf";
+import { message } from "telegraf/filters";
 
 import { type Channel } from "@/channels/types";
 import { type InboundMessage, type OutboundMessageStream } from "@/bus/bus";
 import { createLogger } from "@/utils/logger";
-import { message } from "telegraf/filters";
 
 
 const TELEGRAM_FLUSH_INTERVAL_MS = 500;
@@ -34,7 +34,9 @@ export class TelegramChannel implements Channel {
   }
 
   async start() {
-    await this.bot.launch();
+    this.bot.launch();
+    const user = await this.bot.telegram.getMe();
+    logger.info(`Channel Telegram logged in as @${user.username}`);
   }
 
   async stop() {
