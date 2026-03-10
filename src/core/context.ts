@@ -61,24 +61,38 @@ function serializeMessage(message: ModelMessage, timestamp: string): string {
   return [`[${timestamp}] ${message.role}`, ...lines, ""].join("\n");
 }
 
-export class Context {
-  private readonly messages: ModelMessage[] = [];
+function getSessionKey(sessionId?: string): string {
+  return sessionId ?? "default";
+}
 
-  get(): ModelMessage[] {
-    return [...this.messages];
+export interface Context {
+  get(sessionId?: string): ModelMessage[];
+  add(sessionId: string | undefined, messages: ModelMessage[]): Promise<void>;
+  clear(sessionId?: string): void;
+}
+
+export class FileSystemContext implements Context {
+  private readonly messagesBySession = new Map<string, ModelMessage[]>();
+
+  get(sessionId?: string): ModelMessage[] {
+    const key = getSessionKey(sessionId);
+    return [...(this.messagesBySession.get(key) ?? [])];
   }
 
-  async add(messages: ModelMessage[]): Promise<void> {
+  async add(sessionId: string | undefined, messages: ModelMessage[]): Promise<void> {
     if (messages.length === 0) {
       return;
     }
 
-    this.messages.push(...messages);
+    const key = getSessionKey(sessionId);
+    const sessionMessages = this.messagesBySession.get(key) ?? [];
+    sessionMessages.push(...messages);
+    this.messagesBySession.set(key, sessionMessages);
     await this.log(messages);
   }
 
-  clear(): void {
-    this.messages.length = 0;
+  clear(sessionId?: string): void {
+    this.messagesBySession.delete(getSessionKey(sessionId));
   }
 
   private async log(messages: ModelMessage[]): Promise<void> {

@@ -1,6 +1,6 @@
 import { streamText, stepCountIs, type LanguageModel, type ModelMessage } from "ai";
 
-import { Context } from "@/core/context";
+import { type Context, FileSystemContext } from "@/core/context";
 import { execTool } from "@/core/tools/exec";
 import { createLogger } from "@/utils/logger";
 import { getSystemPrompt } from "@/core/prompt";
@@ -9,6 +9,7 @@ const logger = createLogger("agent");
 
 type AgentConfig = {
   model: LanguageModel;
+  context?: Context;
   maxIterations?: number;
   maxTokens?: number;
   recentMessageLimit?: number;
@@ -22,21 +23,21 @@ type RunTurnInput = {
 
 export class Agent {
   private readonly model: LanguageModel;
-  private readonly contexts = new Map<string, Context>();
+  private readonly context: Context;
   private readonly maxIterations: number;
   private readonly maxTokens?: number;
 
   constructor(config: AgentConfig) {
     this.model = config.model;
+    this.context = config.context ?? new FileSystemContext();
     this.maxIterations = config.maxIterations ?? 100;
     this.maxTokens = config.maxTokens;
   }
 
   async runTurn(input: RunTurnInput): Promise<string> {
     logger.debug("Turn start");
-    const context = this.getContext(input.contextId);
 
-    await context.add([{
+    await this.context.add(input.contextId, [{
       role: "user",
       content: [{ type: "text", text: input.text }]
     }]);
@@ -44,7 +45,7 @@ export class Agent {
     const result = streamText({
       model: this.model,
       system: await getSystemPrompt(),
-      messages: context.get(),
+      messages: this.context.get(input.contextId),
       tools: {
         exec: execTool,
       },
@@ -61,31 +62,12 @@ export class Agent {
     }
 
     const response = await result.response;
-    await context.add(response.messages as ModelMessage[]);
+    await this.context.add(input.contextId, response.messages as ModelMessage[]);
     logger.debug("Turn complete");
     return assistantText;
   }
 
   clearContext(contextId?: string) {
-    const key = contextId ?? "default";
-    const context = this.contexts.get(key);
-
-    if (!context) {
-      return;
-    }
-
-    context.clear();
-  }
-
-  private getContext(contextId?: string): Context {
-    const key = contextId ?? "default";
-    let context = this.contexts.get(key);
-
-    if (!context) {
-      context = new Context();
-      this.contexts.set(key, context);
-    }
-
-    return context;
+    this.context.clear(contextId);
   }
 }
