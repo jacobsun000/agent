@@ -1,9 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
-
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import { z } from "zod";
+
+import { CONFIG_PATH } from "@/utils/utils";
+
+const CONFIG_FILE_PATH = path.join(CONFIG_PATH, "config.jsonc");
+const TEMPLATE_PATH = path.resolve(process.cwd(), "templates", "config.jsonc");
 
 const nonEmptyString = z.string().trim().min(1);
 const portSchema = z.int().min(1).max(65535);
@@ -52,23 +55,15 @@ const configSchema = z.object({
 
 export type Config = z.infer<typeof configSchema>;
 
-export const CONFIG_PATH = path.join(
-  homedir(),
-  ".config",
-  "agent",
-  "config.jsonc"
-);
-
-const TEMPLATE_PATH = path.resolve(process.cwd(), "templates", "config.jsonc");
 
 export function loadConfig(): Config {
-  if (!existsSync(CONFIG_PATH)) {
+  if (!existsSync(CONFIG_FILE_PATH)) {
     throw new Error(
-      `Missing config file at ${CONFIG_PATH}. Start from ${TEMPLATE_PATH}.`
+      `Missing config file at ${CONFIG_FILE_PATH}. Start from ${TEMPLATE_PATH}.`
     );
   }
 
-  const rawConfig = readFileSync(CONFIG_PATH, "utf8");
+  const rawConfig = readFileSync(CONFIG_FILE_PATH, "utf8");
   const parseErrors: ParseError[] = [];
   const parsed = parse(rawConfig, parseErrors, {
     allowTrailingComma: true,
@@ -79,7 +74,7 @@ export function loadConfig(): Config {
     const details = parseErrors
       .map((error) => `${printParseErrorCode(error.error)} at offset ${error.offset}`)
       .join(", ");
-    throw new Error(`Failed to parse ${CONFIG_PATH}: ${details}`);
+    throw new Error(`Failed to parse ${CONFIG_FILE_PATH}: ${details}`);
   }
 
   const result = configSchema.safeParse(parsed);
@@ -91,7 +86,7 @@ export function loadConfig(): Config {
       })
       .join("; ");
 
-    throw new Error(`Invalid config at ${CONFIG_PATH}: ${details}`);
+    throw new Error(`Invalid config at ${CONFIG_FILE_PATH}: ${details}`);
   }
 
   return result.data;
