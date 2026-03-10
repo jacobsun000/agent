@@ -1,8 +1,8 @@
-import { access, readFile, readdir } from "fs/promises";
-import { homedir } from "os";
+import { readFile, readdir } from "fs/promises";
+import { homedir, platform } from "os";
 import path from "path";
 
-import { CONFIG_PATH } from "@/utils/utils";
+import { CONFIG_PATH, escapeXml, pathExists } from "@/utils/utils";
 
 const WORKSPACE_PATH = `${CONFIG_PATH}/workspace`;
 const MAX_SKILL_SCAN_DEPTH = 6;
@@ -25,14 +25,16 @@ type SkillDefinition = {
   name: string;
 };
 
-// TODO: Support other platform
 // TODO: Dynamically load agent prompt from file so it's editable by users
 const AGENT_PROMPT = `
 # Agent
-You are a personal assistant agent running in a linux CLI.
+You are a personal assistant agent running in a local CLI environment.
 
-## Workspace
-Your workspace is at ${WORKSPACE_PATH}.
+## Environment
+- Workspace: ${WORKSPACE_PATH}
+- Current directory: ${process.cwd()}
+- Platform: ${platform()}
+- Home directory: ${homedir()}
 
 ## Tool usage
 You may use the exec tool (basically bash) with cli tools like (head, tail, grep, ls, awk, sed, etc) to interact with the computer and files.
@@ -270,15 +272,6 @@ function renderSkillCatalog(skills: SkillDefinition[]): string {
   ].join("\n");
 }
 
-async function pathExists(targetPath: string): Promise<boolean> {
-  try {
-    await access(targetPath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function sanitizeSkillField(value?: string): string | undefined {
   if (!value) {
     return undefined;
@@ -295,15 +288,5 @@ function stripQuotes(value: string): string {
   ) {
     return value.slice(1, -1).trim();
   }
-
   return value;
-}
-
-function escapeXml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&apos;");
 }

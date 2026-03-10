@@ -1,22 +1,13 @@
-import { access, copyFile, mkdir, readdir } from "node:fs/promises";
+import { copyFile, mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 
-import { CONFIG_PATH } from "@/utils/utils";
+import { CONFIG_PATH, pathExists } from "@/utils/utils";
 
 const TEMPLATE_ROOT = path.resolve(process.cwd(), "templates");
 const WORKSPACE_PATH = path.join(CONFIG_PATH, "workspace");
 const MEMORY_PATH = path.join(WORKSPACE_PATH, "memory");
 const HISTORY_PATH = path.join(MEMORY_PATH, "history");
 const NOTES_PATH = path.join(MEMORY_PATH, "notes");
-
-async function pathExists(targetPath: string): Promise<boolean> {
-  try {
-    await access(targetPath);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 async function copyMissingTree(sourcePath: string, destinationPath: string): Promise<void> {
   const entries = await readdir(sourcePath, { withFileTypes: true });

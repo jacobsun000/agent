@@ -4,6 +4,8 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { escapeXml, pathExists } from "@/utils/utils";
+
 const execFileAsync = promisify(execFile);
 
 const SERVICE_NAME = "agent-gateway";
@@ -49,26 +51,8 @@ function getDefinitionPath(manager: ServiceManager): string {
   return manager === "launchd" ? getLaunchdDefinitionPath() : getSystemdDefinitionPath();
 }
 
-function xmlEscape(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&apos;");
-}
-
 function quoteSystemdArgument(value: string): string {
   return `"${value.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"").replaceAll("%", "%%")}"`;
-}
-
-async function pathExists(targetPath: string): Promise<boolean> {
-  try {
-    await access(targetPath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function isFailure(error: unknown): error is CommandFailure {
@@ -143,13 +127,13 @@ function buildLaunchdPlist(repoRoot: string): string {
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>${xmlEscape(LAUNCHD_LABEL)}</string>
+  <string>${escapeXml(LAUNCHD_LABEL)}</string>
   <key>ProgramArguments</key>
   <array>
-${argumentsList.map((value) => `    <string>${xmlEscape(value)}</string>`).join("\n")}
+${argumentsList.map((value) => `    <string>${escapeXml(value)}</string>`).join("\n")}
   </array>
   <key>WorkingDirectory</key>
-  <string>${xmlEscape(repoRoot)}</string>
+  <string>${escapeXml(repoRoot)}</string>
   <key>KeepAlive</key>
   <dict>
     <key>Crashed</key>
@@ -158,9 +142,9 @@ ${argumentsList.map((value) => `    <string>${xmlEscape(value)}</string>`).join(
   <key>RunAtLoad</key>
   <false/>
   <key>StandardOutPath</key>
-  <string>${xmlEscape(stdoutPath)}</string>
+  <string>${escapeXml(stdoutPath)}</string>
   <key>StandardErrorPath</key>
-  <string>${xmlEscape(stderrPath)}</string>
+  <string>${escapeXml(stderrPath)}</string>
 </dict>
 </plist>
 `;
