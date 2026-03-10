@@ -11,11 +11,15 @@ const nonEmptyString = z.string().trim().min(1);
 const portSchema = z.int().min(1).max(65535);
 
 const configSchema = z.object({
-  provider: z.object({
-    name: z.literal("openai"),
-    apiKey: nonEmptyString,
+  agent: z.object({
     model: nonEmptyString
   }),
+  providers: z.array(
+    z.object({
+      name: z.literal("openai"),
+      apiKey: nonEmptyString
+    })
+  ),
   channels: z.object({
     http: z.object({
       enabled: z.literal(true),
@@ -38,9 +42,67 @@ const configSchema = z.object({
         }
       })
   })
+}).superRefine((value, context) => {
+  const seenProviders = new Set<string>();
+
+  for (const [index, provider] of value.providers.entries()) {
+    if (seenProviders.has(provider.name)) {
+      context.addIssue({
+        code: "custom",
+        path: ["providers", index, "name"],
+        message: `Duplicate provider '${provider.name}'.`
+      });
+      continue;
+    }
+
+    seenProviders.add(provider.name);
+  }
+
+  try {
+    const providerName = getProviderNameFromModel(value.agent.model);
+    if (!seenProviders.has(providerName)) {
+      context.addIssue({
+        code: "custom",
+        path: ["agent", "model"],
+        message: `No provider named '${providerName}' configured in providers.`
+      });
+    }
+  } catch (error) {
+    context.addIssue({
+      code: "custom",
+      path: ["agent", "model"],
+      message: error instanceof Error ? error.message : "Invalid model format."
+    });
+  }
 });
 
 export type Config = z.infer<typeof configSchema>;
+export type ProviderConfig = Config["providers"][number];
+
+export function getProviderNameFromModel(model: string): string {
+  const [providerName] = model.split("/", 1);
+
+  if (!providerName || providerName.trim() === "") {
+    throw new Error("Model must start with '<provider>/'.");
+  }
+
+  if (!model.includes("/")) {
+    throw new Error("Model must include '/' so the provider can be derived.");
+  }
+
+  return providerName.trim();
+}
+
+export function getProviderConfig(config: Config, model = config.agent.model): ProviderConfig {
+  const providerName = getProviderNameFromModel(model);
+  const provider = config.providers.find((entry) => entry.name === providerName);
+
+  if (!provider) {
+    throw new Error(`No provider named '${providerName}' configured.`);
+  }
+
+  return provider;
+}
 
 
 export function loadConfig(): Config {

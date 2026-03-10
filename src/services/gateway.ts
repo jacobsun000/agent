@@ -5,7 +5,7 @@ import { HttpChannel } from "@/channels/http";
 import { TelegramChannel } from "@/channels/telegram";
 import { Agent } from "@/core/agent";
 import { createLogger } from "@/utils/logger";
-import { loadConfig } from "@/utils/config";
+import { getProviderConfig, loadConfig } from "@/utils/config";
 
 const logger = createLogger("gateway");
 
@@ -16,8 +16,9 @@ type GatewayHandle = {
 
 export async function startGateway(): Promise<GatewayHandle> {
   const config = loadConfig();
-  const openai = createOpenAI({ apiKey: config.provider.apiKey });
-  const model = openai(config.provider.model);
+  const provider = getProviderConfig(config);
+  const openai = createOpenAI({ apiKey: provider.apiKey });
+  const model = openai(config.agent.model);
   const agent = new Agent({
     model,
   });
@@ -48,8 +49,8 @@ export async function startGateway(): Promise<GatewayHandle> {
   await bus.start();
 
   logger.box(`Agent Gateway
-Provider: ${config.provider.name}
-Model: ${config.provider.model}`);
+Provider: ${provider.name}
+Model: ${config.agent.model}`);
 
   let stopPromise: Promise<void> | undefined;
   let resolveStopped!: () => void;
