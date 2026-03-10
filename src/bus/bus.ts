@@ -1,5 +1,3 @@
-import { type ModelMessage } from "ai";
-
 import { Agent } from "@/core/agent";
 import { type ChannelName, type Channel } from "@/channels/types";
 import { createLogger } from "@/utils/logger";
@@ -26,7 +24,6 @@ type BusConfig = {
 export class Bus {
   private readonly agent: Agent;
   private readonly channels: Channel[] = [];
-  private readonly conversations = new Map<string, ModelMessage[]>();
   private readonly sessionLocks = new Map<string, Promise<void>>();
 
   constructor(config: BusConfig) {
@@ -71,30 +68,24 @@ export class Bus {
   }
 
   private async processMessage(sessionKey: string, message: InboundMessage) {
-    const messages = this.conversations.get(sessionKey) ?? [];
     const channel = this.channels.find((c) => c.name === message.channel)!;
-
-    messages.push({
-      role: "user",
-      content: [{ type: "text", text: message.text }]
-    });
-
-    this.conversations.set(sessionKey, messages);
 
     let replyStream: Awaited<ReturnType<Channel["createReplyStream"]>> | undefined;
 
     try {
       replyStream = await channel.createReplyStream(message.chatId);
 
-      const response = await this.agent.runLoop(messages, {
+      await this.agent.runTurn({
+        scope: {
+          sessionId: sessionKey
+        },
+        text: message.text,
         onTextDelta: async (delta) => {
           if (replyStream) {
             await replyStream.write(delta);
           }
         }
       });
-
-      messages.push(...response);
       if (replyStream) {
         await replyStream.finish();
       }

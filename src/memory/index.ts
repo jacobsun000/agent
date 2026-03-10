@@ -6,6 +6,7 @@ export type {
   ConversationMessage,
   ConversationBuffer,
   ConversationScope,
+  RememberTextInput,
   MemoryCategory,
   MemoryCategorySeed,
   MemoryHit,

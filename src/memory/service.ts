@@ -1,4 +1,5 @@
 import path from "node:path";
+import { homedir } from "node:os";
 
 import { createOpenAI } from "@ai-sdk/openai";
 import { embed, embedMany, generateObject, generateText, type ModelMessage } from "ai";
@@ -23,13 +24,16 @@ import {
   type MemoryServiceOptions,
   type MemorySnapshot,
   type MemoryType,
-  type RecallOutput
+  type RecallOutput,
+  type RememberTextInput
 } from "@/memory/types";
 import {
   DEFAULT_MEMORY_CATEGORIES,
   contentHash,
   cosineSimilarity,
   createId,
+  estimateConversationTokens,
+  estimateTokenCount,
   extractPlainTextFromModelContent,
   formatConversation,
   mergeScope,
@@ -41,7 +45,14 @@ const DEFAULT_CHAT_MODEL = "gpt-4o-mini";
 const DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small";
 const DEFAULT_RECENT_MESSAGE_LIMIT = 100;
 const DEFAULT_CONSOLIDATION_BUFFER_MESSAGES = 20;
-const DEFAULT_DB_PATH = path.resolve(process.cwd(), "data", "memory.sqlite");
+const DEFAULT_CONTEXT_TOKEN_LIMIT = 100_000;
+const DEFAULT_RESPONSE_TOKEN_RESERVE = 4_000;
+const DEFAULT_RETRIEVAL_TOKEN_BUDGET = 3_000;
+const DEFAULT_CONTEXT_CONSOLIDATION_BATCH_SIZE = 20;
+const DEFAULT_DB_PATH = path.resolve(homedir(),
+  ".config",
+  "agent",
+  "memory.sqlite");
 
 const consolidationSchema = z.object({
   resourceCaption: z.string().trim().min(1).max(200),
@@ -68,6 +79,8 @@ export class MemoryService {
   private readonly defaultScope: MemoryScope;
   private readonly recentMessageLimit: number;
   private readonly consolidationTriggerMessageCount: number;
+  private readonly contextTokenLimit: number;
+  private readonly responseTokenReserve: number;
 
   constructor(options: MemoryServiceOptions = {}) {
     const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY;
@@ -87,6 +100,14 @@ export class MemoryService {
     this.consolidationTriggerMessageCount =
       this.recentMessageLimit +
       Math.max(1, options.consolidationBufferMessages ?? DEFAULT_CONSOLIDATION_BUFFER_MESSAGES);
+    this.contextTokenLimit = Math.max(
+      8_192,
+      options.contextTokenLimit ?? DEFAULT_CONTEXT_TOKEN_LIMIT
+    );
+    this.responseTokenReserve = Math.max(
+      512,
+      options.responseTokenReserve ?? DEFAULT_RESPONSE_TOKEN_RESERVE
+    );
 
     this.repository = new SqliteMemoryRepository(options.dbPath ?? DEFAULT_DB_PATH);
   }
@@ -158,6 +179,25 @@ export class MemoryService {
     };
   }
 
+  async rememberText(input: RememberTextInput): Promise<ConsolidationResult["memory"]> {
+    const scope = this.toMemoryScope(input.scope);
+    await this.ensureScopeCategories(scope);
+
+    const text = input.text.trim();
+    if (text.length === 0) {
+      return undefined;
+    }
+
+    return this.memorizeText({
+      scope,
+      source: input.source ?? `note:${input.scope.sessionId}`,
+      modality: "note",
+      text,
+      contentLabel: "note",
+      metadata: input.metadata ?? {}
+    });
+  }
+
   async recall(input: {
     scope: ConversationScope;
     query: string;
@@ -165,9 +205,19 @@ export class MemoryService {
     categoryTopK?: number;
     itemTopK?: number;
     resourceTopK?: number;
+    systemPrompt?: string;
+    contextTokenLimit?: number;
+    responseTokenReserve?: number;
   }): Promise<RecallOutput> {
     const scope = this.toMemoryScope(input.scope);
     await this.ensureScopeCategories(scope);
+    await this.ensureContextWindow({
+      scope,
+      query: input.query,
+      systemPrompt: input.systemPrompt ?? "",
+      contextTokenLimit: input.contextTokenLimit ?? this.contextTokenLimit,
+      responseTokenReserve: input.responseTokenReserve ?? this.responseTokenReserve
+    });
 
     const recentMessages = this.repository.getRecentMessages(scope, this.recentMessageLimit);
     const { embedding: queryEmbedding } = await embed({
@@ -185,6 +235,7 @@ export class MemoryService {
       scope,
       categoryHits.map((category) => category.id)
     );
+
     const itemHits = this.rankItems({
       items: candidateItems,
       queryEmbedding,
@@ -232,43 +283,33 @@ export class MemoryService {
     this.repository.close();
   }
 
-  private async consolidateConversationChunk(input: {
+  private async memorizeText(input: {
     scope: MemoryScope;
     source: string;
-    messages: ConversationMessage[];
+    modality: MemoryResource["modality"];
+    text: string;
+    contentLabel: string;
     metadata: Record<string, string>;
   }): Promise<ConsolidationResult["memory"]> {
-    if (input.messages.length === 0) {
-      return undefined;
-    }
-
-    const categories = this.categoryTemplates;
-    const conversation = formatConversation(input.messages);
-    const extraction = await generateObject({
-      model: this.chatModel,
-      schema: consolidationSchema,
-      prompt: buildConsolidationPrompt({
-        conversation,
-        categories
-      })
+    const payload = await this.extractMemoryPayload({
+      text: input.text,
+      contentLabel: input.contentLabel
     });
-
-    const payload = extraction.object as ConsolidationOutput;
     const resourceEmbedding = payload.resourceCaption
       ? (
-          await embed({
-            model: this.embeddingModel,
-            value: payload.resourceCaption
-          })
-        ).embedding
+        await embed({
+          model: this.embeddingModel,
+          value: payload.resourceCaption
+        })
+      ).embedding
       : null;
 
     const timestamp = nowIso();
     const resource: MemoryResource = {
       id: createId(),
       source: input.source,
-      modality: "conversation",
-      content: conversation,
+      modality: input.modality,
+      content: input.text,
       caption: payload.resourceCaption,
       metadata: input.metadata,
       embedding: resourceEmbedding,
@@ -284,21 +325,55 @@ export class MemoryService {
       items: payload.items,
       createdAt: timestamp
     });
-    const affectedCategoryIds = Array.from(
-      new Set(items.flatMap((item) => item.categoryIds))
-    );
+    const affectedCategoryIds = Array.from(new Set(items.flatMap((item) => item.categoryIds)));
     const categoriesAfterUpdate = await this.updateCategorySummaries({
       scope: input.scope,
       affectedCategoryIds
     });
-    const relations = this.collectRelations(items);
 
     return {
       resource,
       items,
       categories: categoriesAfterUpdate,
-      relations
+      relations: this.collectRelations(items)
     };
+  }
+
+  private async extractMemoryPayload(input: {
+    text: string;
+    contentLabel: string;
+  }): Promise<ConsolidationOutput> {
+    const extraction = await generateObject({
+      model: this.chatModel,
+      schema: consolidationSchema,
+      prompt: buildConsolidationPrompt({
+        content: input.text,
+        contentLabel: input.contentLabel,
+        categories: this.categoryTemplates
+      })
+    });
+
+    return extraction.object as ConsolidationOutput;
+  }
+
+  private async consolidateConversationChunk(input: {
+    scope: MemoryScope;
+    source: string;
+    messages: ConversationMessage[];
+    metadata: Record<string, string>;
+  }): Promise<ConsolidationResult["memory"]> {
+    if (input.messages.length === 0) {
+      return undefined;
+    }
+
+    return this.memorizeText({
+      scope: input.scope,
+      source: input.source,
+      modality: "conversation",
+      text: formatConversation(input.messages),
+      contentLabel: "conversation chunk",
+      metadata: input.metadata
+    });
   }
 
   private async persistMemoryItems(input: {
@@ -406,11 +481,11 @@ export class MemoryService {
       const summary = text.trim();
       const embedding = summary
         ? (
-            await embed({
-              model: this.embeddingModel,
-              value: summary
-            })
-          ).embedding
+          await embed({
+            model: this.embeddingModel,
+            value: summary
+          })
+        ).embedding
         : category.embedding;
 
       this.repository.updateCategory({
@@ -483,6 +558,49 @@ export class MemoryService {
       .slice(0, input.topK);
   }
 
+  private async ensureContextWindow(input: {
+    scope: MemoryScope;
+    query: string;
+    systemPrompt: string;
+    contextTokenLimit: number;
+    responseTokenReserve: number;
+  }): Promise<void> {
+    const availablePromptTokens = Math.max(
+      1_024,
+      input.contextTokenLimit - input.responseTokenReserve - DEFAULT_RETRIEVAL_TOKEN_BUDGET
+    );
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const recentMessages = this.repository.getRecentMessages(input.scope, this.recentMessageLimit);
+      const estimatedPromptTokens =
+        estimateTokenCount(input.systemPrompt) +
+        estimateTokenCount(input.query) +
+        estimateConversationTokens(recentMessages);
+
+      if (estimatedPromptTokens <= availablePromptTokens || recentMessages.length === 0) {
+        return;
+      }
+
+      const batchSize = Math.min(
+        DEFAULT_CONTEXT_CONSOLIDATION_BATCH_SIZE,
+        recentMessages.length
+      );
+      const messagesToConsolidate = this.repository.popOldestRecentMessages(input.scope, batchSize);
+      if (messagesToConsolidate.length === 0) {
+        return;
+      }
+
+      await this.consolidateConversationChunk({
+        scope: input.scope,
+        source: `conversation:${this.scopeSessionId(input.scope)}:context-window`,
+        messages: messagesToConsolidate,
+        metadata: {
+          reason: "context_window"
+        }
+      });
+    }
+  }
+
   private buildRecallContext(input: {
     recentMessages: ConversationMessage[];
     categories: Array<MemoryHit<MemoryCategory>>;
@@ -490,16 +608,6 @@ export class MemoryService {
     resources: Array<MemoryHit<MemoryResource>>;
   }): string {
     const parts: string[] = [];
-
-    if (input.recentMessages.length > 0) {
-      parts.push("<recent_messages>");
-      parts.push(
-        input.recentMessages
-          .map((message) => `${message.role.toUpperCase()}: ${message.content}`)
-          .join("\n")
-      );
-      parts.push("</recent_messages>");
-    }
 
     if (input.categories.length > 0) {
       parts.push("<memory_categories>");
@@ -575,15 +683,15 @@ export class MemoryService {
       .map((message) => {
         const role =
           message.role === "system" ||
-          message.role === "user" ||
-          message.role === "assistant" ||
-          message.role === "tool"
+            message.role === "user" ||
+            message.role === "assistant" ||
+            message.role === "tool"
             ? message.role
             : "tool";
         const content =
           "content" in message
             ? extractPlainTextFromModelContent(message.content) ||
-              (typeof message.content === "string" ? message.content : "")
+            (typeof message.content === "string" ? message.content : "")
             : "";
 
         return {
@@ -612,5 +720,10 @@ export class MemoryService {
       sessionId: scope.sessionId,
       ...(scope.userId ? { userId: scope.userId } : {})
     });
+  }
+
+  private scopeSessionId(scope: MemoryScope): string {
+    const sessionId = scope.sessionId;
+    return typeof sessionId === "string" && sessionId.trim() !== "" ? sessionId : "unknown";
   }
 }

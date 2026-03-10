@@ -10,7 +10,8 @@ export const MEMORY_TYPES = [
 ] as const;
 
 export function buildConsolidationPrompt(input: {
-  conversation: string;
+  content: string;
+  contentLabel: string;
   categories: MemoryCategorySeed[];
 }): string {
   const categoryLines = input.categories
@@ -34,7 +35,7 @@ Allowed categories:
 ${categoryLines}
 
 Requirements:
-- Produce a short caption summarizing the whole conversation chunk.
+- Produce a short caption summarizing the whole ${input.contentLabel}.
 - Produce atomic memory items.
 - Each item must have:
   - memoryType
@@ -45,8 +46,8 @@ Requirements:
 - Prefer fewer, higher-quality items over many weak ones.
 - If nothing durable should be stored, return an empty items array.
 
-Conversation:
-${input.conversation}
+${input.contentLabel}:
+${input.content}
 `.trim();
 }
 

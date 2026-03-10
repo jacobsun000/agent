@@ -98,6 +98,23 @@ export function summarizeText(value: string, maxLength = 180): string {
   return `${trimmed.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
+export function estimateTokenCount(value: string): number {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return 0;
+  }
+
+  const wordEstimate = trimmed.split(/\s+/).length * 1.35;
+  const characterEstimate = trimmed.length / 4;
+  return Math.ceil(Math.max(wordEstimate, characterEstimate));
+}
+
+export function estimateConversationTokens(messages: ConversationMessage[]): number {
+  return messages.reduce((total, message) => {
+    return total + estimateTokenCount(message.content) + 6;
+  }, 0);
+}
+
 export function cosineSimilarity(left: number[] | null, right: number[] | null): number {
   if (!left || !right || left.length === 0 || right.length === 0 || left.length !== right.length) {
     return 0;

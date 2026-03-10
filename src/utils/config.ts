@@ -14,6 +14,18 @@ const configSchema = z.object({
     apiKey: nonEmptyString,
     model: nonEmptyString
   }),
+  memory: z
+    .object({
+      dbPath: z.string().trim().min(1).optional(),
+      chatModel: nonEmptyString.optional(),
+      embeddingModel: nonEmptyString.optional(),
+      recentMessageLimit: z.int().min(1).optional(),
+      consolidationBufferMessages: z.int().min(1).optional(),
+      contextTokenLimit: z.int().min(1024).optional(),
+      responseTokenReserve: z.int().min(128).optional(),
+      recallTopK: z.int().min(1).max(10).optional()
+    })
+    .optional(),
   channels: z.object({
     http: z.object({
       enabled: z.literal(true),

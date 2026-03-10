@@ -91,6 +91,13 @@ export type AddConversationMessageInput = {
   metadata?: Record<string, string>;
 };
 
+export type RememberTextInput = {
+  scope: ConversationScope;
+  text: string;
+  source?: string;
+  metadata?: Record<string, string>;
+};
+
 export type ConversationBuffer = {
   scope: ConversationScope;
   messages: ConversationMessage[];
@@ -143,4 +150,6 @@ export type MemoryServiceOptions = {
   defaultScope?: MemoryScope;
   recentMessageLimit?: number;
   consolidationBufferMessages?: number;
+  contextTokenLimit?: number;
+  responseTokenReserve?: number;
 };
