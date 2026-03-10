@@ -6,6 +6,7 @@ import { startGateway } from "@/services/gateway";
 import { bootstrapWorkspace } from "@/utils/bootstrap";
 import { loadConfig } from "@/utils/config";
 import { createLogger } from "@/utils/logger";
+import { approvePairingCode } from "@/utils/pairing";
 
 const logger = createLogger("main");
 
@@ -47,6 +48,28 @@ async function main() {
       }
     )
     .command(
+      "pair <code>",
+      "Approve a pending pairing code",
+      (command) =>
+        command.positional("code", {
+          type: "string",
+          describe: "Six-digit pairing code"
+        }),
+      async (argv) => {
+        if (!argv.code) {
+          throw new Error("Pairing code is required.");
+        }
+
+        const result = approvePairingCode(argv.code);
+
+        if (!result.ok) {
+          throw new Error(`Unknown pairing code: ${argv.code}`);
+        }
+
+        logger.info(`Paired session ${result.sessionKey}.`);
+      }
+    )
+    .command(
       "cli",
       "Open a local CLI session that talks to the gateway",
       (command) =>
@@ -67,7 +90,7 @@ async function main() {
         });
       }
     )
-    .demandCommand(1, "Choose `gateway` or `cli`.")
+    .demandCommand(1, "Choose `gateway`, `pair`, or `cli`.")
     .strict()
     .help()
     .parseAsync();

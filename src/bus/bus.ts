@@ -1,5 +1,6 @@
 import { Agent } from "@/core/agent";
 import { type ChannelName, type Channel } from "@/channels/types";
+import { ensurePairingCode, isSessionPaired } from "@/utils/pairing";
 import { createLogger } from "@/utils/logger";
 
 export type OutboundMessageStream = {
@@ -74,6 +75,17 @@ export class Bus {
 
     try {
       replyStream = await channel.createReplyStream(message.chatId);
+
+      if (!isSessionPaired(sessionKey)) {
+        const pairing = ensurePairingCode(sessionKey);
+        const pairingMessage = pairing.isNew
+          ? `This session is not paired yet.\n\nPairing code: ${pairing.code}\nApprove it locally with: ./agent pair ${pairing.code}`
+          : `This session is waiting for approval.\n\nPairing code: ${pairing.code}\nApprove it locally with: ./agent pair ${pairing.code}`;
+
+        await replyStream.write(pairingMessage);
+        await replyStream.finish();
+        return;
+      }
 
       await this.agent.runTurn({
         contextId: sessionKey,
