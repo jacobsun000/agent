@@ -7,8 +7,44 @@ import { bootstrapWorkspace } from "@/utils/bootstrap";
 import { loadConfig } from "@/utils/config";
 import { createLogger } from "@/utils/logger";
 import { approvePairingCode } from "@/utils/pairing";
+import {
+  getGatewayServiceStatus,
+  installGatewayService,
+  restartGatewayService,
+  startGatewayService,
+  stopGatewayService,
+  uninstallGatewayService
+} from "@/utils/service";
 
 const logger = createLogger("main");
+
+async function runGatewayForeground(): Promise<void> {
+  const gateway = await startGateway();
+
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) {
+      return;
+    }
+
+    shuttingDown = true;
+    await gateway.stop();
+  };
+
+  process.once("SIGINT", () => {
+    void shutdown();
+  });
+
+  process.once("SIGTERM", () => {
+    void shutdown();
+  });
+
+  try {
+    await gateway.waitUntilStopped();
+  } finally {
+    await shutdown();
+  }
+}
 
 async function main() {
   await bootstrapWorkspace();
@@ -17,35 +53,78 @@ async function main() {
     .scriptName("agent")
     .command(
       "gateway",
-      "Start the main gateway service",
-      async (argv) => {
-        const config = loadConfig();
-        const gateway = await startGateway();
-
-        let shuttingDown = false;
-        const shutdown = async () => {
-          if (shuttingDown) {
-            return;
-          }
-
-          shuttingDown = true;
-          await gateway.stop();
-        };
-
-        process.once("SIGINT", () => {
-          void shutdown();
-        });
-
-        process.once("SIGTERM", () => {
-          void shutdown();
-        });
-
-        try {
-          await gateway.waitUntilStopped();
-        } finally {
-          await shutdown();
-        }
-      }
+      "Run the gateway in foreground or manage the installed service",
+      (command) =>
+        command
+          .command(
+            "run",
+            "Run the gateway in the foreground",
+            () => {},
+            async () => {
+              await runGatewayForeground();
+            }
+          )
+          .command(
+            "install",
+            "Install the gateway as a user service",
+            () => {},
+            async () => {
+              const definitionPath = await installGatewayService(process.cwd());
+              logger.info(`Installed gateway service at ${definitionPath}.`);
+            }
+          )
+          .command(
+            "start",
+            "Start the installed gateway service",
+            () => {},
+            async () => {
+              await startGatewayService();
+              logger.info("Started gateway service.");
+            }
+          )
+          .command(
+            "stop",
+            "Stop the installed gateway service",
+            () => {},
+            async () => {
+              await stopGatewayService();
+              logger.info("Stopped gateway service.");
+            }
+          )
+          .command(
+            "restart",
+            "Restart the installed gateway service",
+            () => {},
+            async () => {
+              await restartGatewayService();
+              logger.info("Restarted gateway service.");
+            }
+          )
+          .command(
+            "uninstall",
+            "Uninstall the gateway service",
+            () => {},
+            async () => {
+              await uninstallGatewayService();
+              logger.info("Uninstalled gateway service.");
+            }
+          )
+          .command(
+            "status",
+            "Show gateway service status",
+            () => {},
+            async () => {
+              const status = await getGatewayServiceStatus();
+              logger.box(`Gateway Service
+Manager: ${status.manager}
+Installed: ${status.installed ? "yes" : "no"}
+Enabled: ${status.enabled ? "yes" : "no"}
+Running: ${status.running ? "yes" : "no"}
+Definition: ${status.definitionPath}`);
+            }
+          )
+          .demandCommand(1, "Choose a gateway command: `run`, `start`, `stop`, `restart`, `install`, `uninstall`, or `status`.")
+          .strict()
     )
     .command(
       "pair <code>",
