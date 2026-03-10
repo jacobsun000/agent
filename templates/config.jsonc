@@ -1,19 +1,9 @@
 {
-  // Copy this file to ~/.config/agent/config.jsonc and fill in your values.
+  // This file is bootstrapped into ~/.agent/config.jsonc. Fill in your values.
   "provider": {
     "name": "openai",
     "apiKey": "sk-...",
     "model": "gpt-4.1-mini"
-  },
-  "memory": {
-    "dbPath": "/home/you/.local/share/agent/memory.sqlite",
-    "chatModel": "gpt-4o-mini",
-    "embeddingModel": "text-embedding-3-small",
-    "recentMessageLimit": 100,
-    "consolidationBufferMessages": 20,
-    "contextTokenLimit": 100000,
-    "responseTokenReserve": 4000,
-    "recallTopK": 5
   },
   "channels": {
     "http": {

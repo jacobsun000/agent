@@ -1,12 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import { z } from "zod";
+import path from "node:path";
 
 import { CONFIG_PATH } from "@/utils/utils";
 
 const CONFIG_FILE_PATH = path.join(CONFIG_PATH, "config.jsonc");
-const TEMPLATE_PATH = path.resolve(process.cwd(), "templates", "config.jsonc");
 
 const nonEmptyString = z.string().trim().min(1);
 const portSchema = z.int().min(1).max(65535);
@@ -17,18 +16,6 @@ const configSchema = z.object({
     apiKey: nonEmptyString,
     model: nonEmptyString
   }),
-  memory: z
-    .object({
-      dbPath: z.string().trim().min(1).optional(),
-      chatModel: nonEmptyString.optional(),
-      embeddingModel: nonEmptyString.optional(),
-      recentMessageLimit: z.int().min(1).optional(),
-      consolidationBufferMessages: z.int().min(1).optional(),
-      contextTokenLimit: z.int().min(1024).optional(),
-      responseTokenReserve: z.int().min(128).optional(),
-      recallTopK: z.int().min(1).max(10).optional()
-    })
-    .optional(),
   channels: z.object({
     http: z.object({
       enabled: z.literal(true),
@@ -58,9 +45,7 @@ export type Config = z.infer<typeof configSchema>;
 
 export function loadConfig(): Config {
   if (!existsSync(CONFIG_FILE_PATH)) {
-    throw new Error(
-      `Missing config file at ${CONFIG_FILE_PATH}. Start from ${TEMPLATE_PATH}.`
-    );
+    throw new Error(`Missing config file at ${CONFIG_FILE_PATH}.`);
   }
 
   const rawConfig = readFileSync(CONFIG_FILE_PATH, "utf8");

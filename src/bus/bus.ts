@@ -76,9 +76,6 @@ export class Bus {
       replyStream = await channel.createReplyStream(message.chatId);
 
       await this.agent.runTurn({
-        scope: {
-          sessionId: sessionKey
-        },
         text: message.text,
         onTextDelta: async (delta) => {
           if (replyStream) {

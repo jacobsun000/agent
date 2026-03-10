@@ -3,12 +3,15 @@ import { hideBin } from "yargs/helpers";
 
 import { runCliClient } from "@/services/cli-client";
 import { startGateway } from "@/services/gateway";
+import { bootstrapWorkspace } from "@/utils/bootstrap";
 import { loadConfig } from "@/utils/config";
 import { createLogger } from "@/utils/logger";
 
 const logger = createLogger("main");
 
 async function main() {
+  await bootstrapWorkspace();
+
   await yargs(hideBin(process.argv))
     .scriptName("agent")
     .command(
