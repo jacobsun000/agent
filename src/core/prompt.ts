@@ -1,17 +1,38 @@
-import { readFile } from "fs/promises";
+import { access, readFile, readdir } from "fs/promises";
+import { homedir } from "os";
+import path from "path";
 
-import { CONFIG_PATH } from '@/utils/utils';
+import { CONFIG_PATH } from "@/utils/utils";
 
-const workspacePath = `${CONFIG_PATH}/workspace`;
+const WORKSPACE_PATH = `${CONFIG_PATH}/workspace`;
+const MAX_SKILL_SCAN_DEPTH = 6;
+const MAX_SCANNED_DIRECTORIES = 2_000;
+const SKILL_FILE_NAME = "SKILL.md";
+const SKIP_DIRECTORY_NAMES = new Set([
+  ".git",
+  "node_modules",
+  "dist",
+  "build",
+  ".next",
+  ".turbo",
+  ".cache",
+  "coverage",
+]);
+
+type SkillDefinition = {
+  description: string;
+  location: string;
+  name: string;
+};
 
 // TODO: Support other platform
 // TODO: Dynamically load agent prompt from file so it's editable by users
-export const AGENT_PROMPT = `
+const AGENT_PROMPT = `
 # Agent
 You are a personal assistant agent running in a linux CLI.
 
 ## Workspace
-Your workspace is at ${workspacePath}.
+Your workspace is at ${WORKSPACE_PATH}.
 
 ## Tool usage
 You may use the exec tool (basically bash) with cli tools like (head, tail, grep, ls, awk, sed, etc) to interact with the computer and files.
@@ -58,8 +79,231 @@ ${memory}
 - Mental notes don't survive session restarts. Files do.
 `.trim();
 
+const SKILL_PROMPT = (skills: string) => `
+## Skills
+The following skills extend your capabilities. To use a skill, read its SKILL.md file using the bash tool.
+
+${skills}
+`.trim();
+
 export async function getSystemPrompt(): Promise<string> {
   const memoryPath = `${CONFIG_PATH}/workspace/memory/MEMORY.md`;
-  const memory = await readFile(memoryPath, { encoding: "utf-8" });
-  return AGENT_PROMPT + "\n\n" + MEMORY_PROMPT(memory);
+  const [memory, skills] = await Promise.all([
+    readFile(memoryPath, { encoding: "utf-8" }),
+    buildSkills()
+  ]);
+  return [AGENT_PROMPT, MEMORY_PROMPT(memory), SKILL_PROMPT(skills)].join("\n\n");
+}
+
+async function buildSkills(): Promise<string> {
+  const skills = await discoverSkills();
+
+  if (skills.length === 0) {
+    return "";
+  }
+
+  return [
+    renderSkillCatalog(skills)
+  ].join("\n");
+}
+
+async function discoverSkills(): Promise<SkillDefinition[]> {
+  const paths = [
+    path.join(homedir(), ".agents", "skills"),
+    path.join(WORKSPACE_PATH, "skills")
+  ];
+  const discovered = new Map<string, SkillDefinition>();
+
+  for (const path of paths) {
+    if (!(await pathExists(path))) {
+      continue;
+    }
+
+    const skillFilePaths = await findSkillFiles(path);
+
+    for (const skillFilePath of skillFilePaths) {
+      const skill = await loadSkillDefinition(skillFilePath);
+      if (!skill) {
+        continue;
+      }
+
+      discovered.set(skill.name, skill);
+    }
+  }
+
+  return [...discovered.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+async function findSkillFiles(rootPath: string): Promise<string[]> {
+  const skillFiles: string[] = [];
+  let scannedDirectories = 0;
+
+  async function visit(directoryPath: string, depth: number): Promise<void> {
+    if (depth > MAX_SKILL_SCAN_DEPTH || scannedDirectories >= MAX_SCANNED_DIRECTORIES) {
+      return;
+    }
+
+    scannedDirectories += 1;
+
+    let entries;
+    try {
+      entries = await readdir(directoryPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (SKIP_DIRECTORY_NAMES.has(entry.name)) {
+          continue;
+        }
+
+        await visit(path.join(directoryPath, entry.name), depth + 1);
+        continue;
+      }
+
+      if (entry.isFile() && entry.name === SKILL_FILE_NAME) {
+        skillFiles.push(path.join(directoryPath, entry.name));
+      }
+    }
+  }
+
+  await visit(rootPath, 0);
+  return skillFiles;
+}
+
+async function loadSkillDefinition(skillFilePath: string): Promise<SkillDefinition | undefined> {
+  let content: string;
+
+  try {
+    content = await readFile(skillFilePath, "utf8");
+  } catch {
+    return undefined;
+  }
+
+  const metadata = parseSkillMetadata(content);
+  const fallbackName = path.basename(path.dirname(skillFilePath));
+  const name = sanitizeSkillField(metadata.name) ?? fallbackName;
+  const description = sanitizeSkillField(metadata.description) ?? extractDescriptionFallback(content);
+
+  if (!name || !description) {
+    return undefined;
+  }
+
+  return {
+    name,
+    description,
+    location: skillFilePath
+  };
+}
+
+function parseSkillMetadata(content: string): { description?: string; name?: string } {
+  if (!content.startsWith("---")) {
+    return {};
+  }
+
+  const normalized = content.replace(/\r\n/g, "\n");
+  const endIndex = normalized.indexOf("\n---", 3);
+
+  if (endIndex === -1) {
+    return {};
+  }
+
+  const frontmatter = normalized.slice(4, endIndex).split("\n");
+  const metadata: { description?: string; name?: string } = {};
+
+  for (const line of frontmatter) {
+    const match = /^([A-Za-z0-9_-]+)\s*:\s*(.+?)\s*$/.exec(line);
+    if (!match) {
+      continue;
+    }
+
+    const [, key, rawValue] = match;
+    if (key !== "name" && key !== "description") {
+      continue;
+    }
+
+    const value = stripQuotes(rawValue.trim());
+    if (value.length === 0) {
+      continue;
+    }
+
+    metadata[key] = value;
+  }
+
+  return metadata;
+}
+
+function extractDescriptionFallback(content: string): string | undefined {
+  const withoutFrontmatter = content.startsWith("---")
+    ? content.replace(/^---[\s\S]*?\n---\n?/, "")
+    : content;
+  const lines = withoutFrontmatter
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    if (line.startsWith("#")) {
+      continue;
+    }
+
+    return line.length > 240 ? `${line.slice(0, 237)}...` : line;
+  }
+
+  return undefined;
+}
+
+function renderSkillCatalog(skills: SkillDefinition[]): string {
+  const items = skills.map((skill) => [
+    "  <skill>",
+    `    <name>${escapeXml(skill.name)}</name>`,
+    `    <description>${escapeXml(skill.description)}</description>`,
+    `    <location>${escapeXml(skill.location)}</location>`,
+    "  </skill>"
+  ].join("\n"));
+
+  return [
+    "<available_skills>",
+    ...items,
+    "</available_skills>"
+  ].join("\n");
+}
+
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeSkillField(value?: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function stripQuotes(value: string): string {
+  if (
+    (value.startsWith("\"") && value.endsWith("\"")) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    return value.slice(1, -1).trim();
+  }
+
+  return value;
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&apos;");
 }
