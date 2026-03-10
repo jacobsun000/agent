@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
 import { type InboundMessage, type OutboundMessageStream } from "@/bus/bus";
@@ -11,7 +12,7 @@ type HttpChannelConfig = {
 };
 
 type HttpRequestBody = {
-  chatId: string;
+  chatId?: string;
   text: string;
 };
 
@@ -107,6 +108,7 @@ export class HttpChannel implements Channel {
   private async handleMessageRequest(request: IncomingMessage, response: ServerResponse) {
     const body = await this.readJsonBody(request);
     const payload = this.validateRequestBody(body);
+    const chatId = payload.chatId ?? this.deriveChatId(request);
 
     response.writeHead(200, {
       "content-type": "application/x-ndjson; charset=utf-8",
@@ -115,16 +117,16 @@ export class HttpChannel implements Channel {
     });
 
     const replyStream = this.createHttpReplyStream(response);
-    this.attachReplyStream(payload.chatId, replyStream);
+    this.attachReplyStream(chatId, replyStream);
 
     try {
       await this.onMessage({
         channel: this.name,
-        chatId: payload.chatId,
+        chatId,
         text: payload.text
       });
     } finally {
-      this.detachReplyStream(payload.chatId);
+      this.detachReplyStream(chatId);
 
       if (!response.writableEnded) {
         response.end();
@@ -156,8 +158,8 @@ export class HttpChannel implements Channel {
     const chatId = (value as { chatId?: unknown }).chatId;
     const text = (value as { text?: unknown }).text;
 
-    if (typeof chatId !== "string" || chatId.trim() === "") {
-      throw new Error("`chatId` must be a non-empty string.");
+    if (chatId !== undefined && (typeof chatId !== "string" || chatId.trim() === "")) {
+      throw new Error("`chatId` must be a non-empty string when provided.");
     }
 
     if (typeof text !== "string" || text.trim() === "") {
@@ -165,9 +167,47 @@ export class HttpChannel implements Channel {
     }
 
     return {
-      chatId,
+      chatId: typeof chatId === "string" ? chatId.trim() : undefined,
       text
     };
+  }
+
+  private deriveChatId(request: IncomingMessage): string {
+    const protocol = this.getForwardedHeaderValue(request.headers["x-forwarded-proto"]) ?? "http";
+    const host =
+      this.getForwardedHeaderValue(request.headers["x-forwarded-host"]) ??
+      this.getForwardedHeaderValue(request.headers.host);
+
+    if (!host) {
+      throw new Error("Unable to derive HTTP chat ID without a Host header.");
+    }
+
+    const accessUrl = `${protocol}://${host}`;
+    return this.encodeChatId(accessUrl);
+  }
+
+  private getForwardedHeaderValue(value: string | string[] | undefined): string | undefined {
+    if (Array.isArray(value)) {
+      return this.getForwardedHeaderValue(value[0]);
+    }
+
+    if (typeof value !== "string") {
+      return undefined;
+    }
+
+    const firstValue = value.split(",")[0]?.trim();
+    return firstValue ? firstValue : undefined;
+  }
+
+  private encodeChatId(input: string): string {
+    const digest = createHash("sha256").update(input).digest();
+    let value = 0n;
+
+    for (const byte of digest.subarray(0, 8)) {
+      value = (value << 8n) | BigInt(byte);
+    }
+
+    return (value % 10_000_000_000n).toString().padStart(10, "0");
   }
 
   private createHttpReplyStream(response: ServerResponse): OutboundMessageStream {

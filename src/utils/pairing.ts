@@ -22,15 +22,6 @@ type PairingState = {
   isNew: boolean;
 };
 
-type PairingApprovalResult =
-  | {
-      ok: true;
-      sessionKey: string;
-    }
-  | {
-      ok: false;
-    };
-
 const DEFAULT_STORE: PairingStore = {
   pairedSessionKeys: [],
   pendingPairings: []
@@ -73,13 +64,13 @@ export function ensurePairingCode(sessionKey: string): PairingState {
   };
 }
 
-export function approvePairingCode(code: string): PairingApprovalResult {
+export function approvePairingCode(code: string): string {
   const normalizedCode = normalizePairingCode(code);
   const store = loadPairingStore();
   const pendingPairing = store.pendingPairings.find((pairing) => pairing.code === normalizedCode);
 
   if (!pendingPairing) {
-    return { ok: false };
+    throw new Error("Invalid pairing code.");
   }
 
   if (!store.pairedSessionKeys.includes(pendingPairing.sessionKey)) {
@@ -91,10 +82,7 @@ export function approvePairingCode(code: string): PairingApprovalResult {
   );
   savePairingStore(store);
 
-  return {
-    ok: true,
-    sessionKey: pendingPairing.sessionKey
-  };
+  return pendingPairing.sessionKey;
 }
 
 function loadPairingStore(): PairingStore {

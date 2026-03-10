@@ -57,16 +57,17 @@ async function main() {
         }),
       async (argv) => {
         if (!argv.code) {
-          throw new Error("Pairing code is required.");
+          logger.error("Pairing code is required.");
+          return;
         }
 
-        const result = approvePairingCode(argv.code);
-
-        if (!result.ok) {
-          throw new Error(`Unknown pairing code: ${argv.code}`);
+        try {
+          const sessionKey = approvePairingCode(argv.code);
+          logger.info(`Paired session ${sessionKey}.`);
+        } catch (error) {
+          logger.error(`Error approving pairing code: ${error instanceof Error ? error.message : error}`);
         }
 
-        logger.info(`Paired session ${result.sessionKey}.`);
       }
     )
     .command(
@@ -77,16 +78,11 @@ async function main() {
           .option("url", {
             type: "string",
             describe: "Gateway base URL"
-          })
-          .option("session", {
-            type: "string",
-            describe: "Conversation/session identifier for the CLI chat"
           }),
       async (argv) => {
         const config = loadConfig();
         await runCliClient({
-          baseUrl: argv.url ?? config.channels.http.url,
-          chatId: argv.session
+          baseUrl: argv.url ?? config.channels.http.url
         });
       }
     )

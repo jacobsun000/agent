@@ -1,12 +1,9 @@
-import { randomUUID } from "node:crypto";
-
 import { createLogger } from "@/utils/logger";
 
 const logger = createLogger("cli");
 
 type RunCliClientOptions = {
   baseUrl: string;
-  chatId?: string;
 };
 
 type HttpChannelEvent =
@@ -15,8 +12,6 @@ type HttpChannelEvent =
   | { type: "error"; message: string };
 
 export async function runCliClient(options: RunCliClientOptions) {
-  const chatId = options.chatId ?? randomUUID();
-
   logger.box("CLI agent ready.\nType a request, or use `exit` to quit.");
 
   while (true) {
@@ -34,7 +29,6 @@ export async function runCliClient(options: RunCliClientOptions) {
 
     await streamHttpReply({
       baseUrl: options.baseUrl,
-      chatId,
       text: userInput
     });
   }
@@ -42,7 +36,6 @@ export async function runCliClient(options: RunCliClientOptions) {
 
 async function streamHttpReply(input: {
   baseUrl: string;
-  chatId: string;
   text: string;
 }) {
   const response = await fetch(new URL("/channels/http/messages", input.baseUrl), {
@@ -51,7 +44,6 @@ async function streamHttpReply(input: {
       "content-type": "application/json"
     },
     body: JSON.stringify({
-      chatId: input.chatId,
       text: input.text
     })
   });

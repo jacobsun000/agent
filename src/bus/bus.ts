@@ -69,6 +69,7 @@ export class Bus {
   }
 
   private async processMessage(sessionKey: string, message: InboundMessage) {
+    logger.info(`Inbound Message ${this.formatMessage(sessionKey, message.text)}`);
     const channel = this.channels.find((c) => c.name === message.channel)!;
 
     let replyStream: Awaited<ReturnType<Channel["createReplyStream"]>> | undefined;
@@ -87,7 +88,7 @@ export class Bus {
         return;
       }
 
-      await this.agent.runTurn({
+      const response = await this.agent.runTurn({
         contextId: sessionKey,
         text: message.text,
         onTextDelta: async (delta) => {
@@ -96,6 +97,7 @@ export class Bus {
           }
         }
       });
+      logger.info(`Agent Response  ${this.formatMessage(sessionKey, response)}`);
       if (replyStream) {
         await replyStream.finish();
       }
@@ -105,5 +107,13 @@ export class Bus {
         await replyStream.fail("Sorry, something went wrong while generating a reply.");
       }
     }
+  }
+
+  private formatMessage(sessionKey: string, text: string): string {
+    const keyPart = sessionKey.split('-')[0];
+    const textFormatted = text.replaceAll('\n', ' ')
+    const textPart = textFormatted.slice(0, 64);
+    const textRemainder = textFormatted.length > 64 ? "..." : "";
+    return `[${keyPart}]: ${textPart}${textRemainder}`;
   }
 }
