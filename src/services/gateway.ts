@@ -31,6 +31,7 @@ export async function startGateway(): Promise<GatewayHandle> {
   let spawnSubAgent!: ReturnType<typeof createSubAgentDispatcher>;
   const agent = new Agent({
     model,
+    memoryWindow: config.agent.memoryWindow,
     onSubAgentSpawn: async (request) => spawnSubAgent(request),
     onCronAction: async (input) => cron.handleToolAction(input),
     onSendFile: async ({ channel, chatId, path, filename, caption }) => {
@@ -116,12 +117,6 @@ export async function startGateway(): Promise<GatewayHandle> {
   await bus.start();
   cron.start();
   heartbeat.start();
-
-  if (typeof config.agent.memoryWindow === "number") {
-    logger.info(
-      `Configured agent.memoryWindow=${config.agent.memoryWindow}, but automatic compaction is not enabled yet because token counting is not implemented.`
-    );
-  }
 
   logger.box(`Agent Gateway
 Provider: ${provider.name}

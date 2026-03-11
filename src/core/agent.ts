@@ -35,6 +35,7 @@ type AgentConfig = {
   context?: Context;
   maxIterations?: number;
   maxTokens?: number;
+  memoryWindow?: number;
   recentMessageLimit?: number;
   mode?: AgentMode;
   onSubAgentSpawn?: (request: SubAgentRequest) => Promise<void>;
@@ -59,6 +60,7 @@ type RunTurnInput = {
   text: string;
   images?: InboundImage[];
   onTextDelta?: (delta: string) => void | Promise<void>;
+  skipAutoCompact?: boolean;
 };
 
 export class Agent {
@@ -66,6 +68,7 @@ export class Agent {
   private readonly context: Context;
   private readonly maxIterations: number;
   private readonly maxTokens?: number;
+  private readonly memoryWindow?: number;
   private readonly mode: AgentMode;
   private readonly onSubAgentSpawn?: AgentConfig["onSubAgentSpawn"];
   private readonly onCronAction?: AgentConfig["onCronAction"];
@@ -77,6 +80,7 @@ export class Agent {
     this.context = config.context ?? new FileSystemContext();
     this.maxIterations = config.maxIterations ?? 100;
     this.maxTokens = config.maxTokens;
+    this.memoryWindow = config.memoryWindow;
     this.mode = config.mode ?? "main";
     this.onSubAgentSpawn = config.onSubAgentSpawn;
     this.onCronAction = config.onCronAction;
@@ -118,6 +122,11 @@ export class Agent {
 
     const response = await result.response;
     await this.context.add(input.contextId, response.messages as ModelMessage[]);
+    await this.maybeAutoCompact(input).catch((error) => {
+      logger.warn(
+        `Auto-compaction failed for context '${input.contextId ?? "default"}': ${error instanceof Error ? error.message : String(error)}`
+      );
+    });
     logger.debug("Turn complete");
     return assistantText;
   }
@@ -158,9 +167,35 @@ export class Agent {
           channel: input.channel,
           chatId: input.chatId,
           contextId: input.contextId,
-          text: COMPACTION_PREP_PROMPT
+          text: COMPACTION_PREP_PROMPT,
+          skipAutoCompact: true
         });
       }
+    });
+  }
+
+  private async maybeAutoCompact(input: RunTurnInput): Promise<void> {
+    if (input.skipAutoCompact || this.mode !== "main") {
+      return;
+    }
+
+    if (typeof this.memoryWindow !== "number" || this.memoryWindow <= 0) {
+      return;
+    }
+
+    const stats = this.context.statistics(input.contextId);
+    const totalTokens = stats.totalInputTokens + stats.totalOutputTokens;
+    if (totalTokens < this.memoryWindow) {
+      return;
+    }
+
+    logger.info(
+      `Auto-compacting context '${input.contextId ?? "default"}' (${totalTokens} tokens >= memoryWindow ${this.memoryWindow}).`
+    );
+    await this.compactContext({
+      contextId: input.contextId,
+      channel: input.channel,
+      chatId: input.chatId
     });
   }
 

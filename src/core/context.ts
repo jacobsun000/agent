@@ -216,8 +216,24 @@ export class FileSystemContext implements Context {
       ].join("\n")
     };
 
+    const resetStats: Omit<ContextStatistics, "sessionId" | "toolCallSuccessRate"> = {
+      totalMessages: 0,
+      totalUserMessages: 0,
+      totalModelMessages: 0,
+      totalSystemMessages: 0,
+      totalToolMessages: 0,
+      totalToolCalls: 0,
+      totalToolCallSuccesses: 0,
+      totalToolCallFailures: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      inputTokensEstimated: false,
+      outputTokensEstimated: false
+    };
+
     this.messagesBySession.set(key, [compactedNote]);
-    this.updateStatsWithMessage(this.getOrCreateStats(key), compactedNote);
+    this.statsBySession.set(key, resetStats);
+    this.updateStatsWithMessage(resetStats, compactedNote);
     await this.log([compactedNote]);
 
     return {
