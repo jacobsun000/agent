@@ -86,6 +86,14 @@ function getSessionKey(sessionId?: string): string {
 export interface Context {
   get(sessionId?: string): ModelMessage[];
   add(sessionId: string | undefined, messages: ModelMessage[]): Promise<void>;
+  recordTurnUsage(
+    sessionId: string | undefined,
+    usage: {
+      inputTokens?: number;
+      outputTokens?: number;
+      estimatedOutputTokens?: number;
+    }
+  ): void;
   statistics(sessionId?: string): ContextStatistics;
   compact(
     sessionId: string | undefined,
@@ -129,6 +137,38 @@ export class FileSystemContext implements Context {
 
     this.messagesBySession.set(key, sessionMessages);
     await this.log(messages);
+  }
+
+  recordTurnUsage(
+    sessionId: string | undefined,
+    usage: {
+      inputTokens?: number;
+      outputTokens?: number;
+      estimatedOutputTokens?: number;
+    }
+  ): void {
+    const key = getSessionKey(sessionId);
+    const stats = this.getOrCreateStats(key);
+
+    if (typeof usage.inputTokens === "number" && Number.isFinite(usage.inputTokens)) {
+      stats.totalInputTokens = Math.max(0, Math.floor(usage.inputTokens));
+      stats.inputTokensEstimated = false;
+    } else {
+      stats.totalInputTokens = 0;
+      stats.inputTokensEstimated = true;
+    }
+
+    if (typeof usage.outputTokens === "number" && Number.isFinite(usage.outputTokens)) {
+      stats.totalOutputTokens += Math.max(0, Math.floor(usage.outputTokens));
+    } else if (
+      typeof usage.estimatedOutputTokens === "number" &&
+      Number.isFinite(usage.estimatedOutputTokens)
+    ) {
+      stats.totalOutputTokens += Math.max(0, Math.floor(usage.estimatedOutputTokens));
+      stats.outputTokensEstimated = true;
+    } else {
+      stats.outputTokensEstimated = true;
+    }
   }
 
   statistics(sessionId?: string): ContextStatistics {
@@ -283,14 +323,13 @@ export class FileSystemContext implements Context {
     message: ModelMessage
   ): void {
     const isUser = message.role === "user";
-    const isAssistant = message.role === "assistant";
     const isSystem = message.role === "system";
     const isTool = message.role === "tool";
 
     stats.totalMessages += 1;
     if (isUser) {
       stats.totalUserMessages += 1;
-    } else if (isAssistant) {
+    } else if (message.role === "assistant") {
       stats.totalModelMessages += 1;
     } else if (isSystem) {
       stats.totalSystemMessages += 1;
@@ -303,23 +342,6 @@ export class FileSystemContext implements Context {
     stats.totalToolCallSuccesses += toolStats.successes;
     stats.totalToolCallFailures += toolStats.failures;
 
-    // Prefer usage on assistant messages; this is where provider token accounting is available.
-    if (isAssistant) {
-      const usage = extractUsageStats(message);
-
-      if (usage.inputTokens !== null) {
-        stats.totalInputTokens += usage.inputTokens;
-      } else {
-        stats.inputTokensEstimated = true;
-      }
-
-      if (usage.outputTokens !== null) {
-        stats.totalOutputTokens += usage.outputTokens;
-      } else {
-        stats.totalOutputTokens += estimateTokens(message);
-        stats.outputTokensEstimated = true;
-      }
-    }
   }
 }
 
@@ -365,67 +387,4 @@ function extractToolStats(message: ModelMessage): {
   }
 
   return { calls, successes, failures };
-}
-
-function extractUsageStats(message: ModelMessage): {
-  inputTokens: number | null;
-  outputTokens: number | null;
-} {
-  if (typeof message.content === "string") {
-    return { inputTokens: null, outputTokens: null };
-  }
-
-  for (const part of message.content) {
-    if (!("providerMetadata" in part)) {
-      continue;
-    }
-
-    const metadata = part.providerMetadata;
-    if (!metadata || typeof metadata !== "object") {
-      continue;
-    }
-
-    const candidate = metadata as Record<string, unknown>;
-    const inputTokens = readTokenCount(candidate, ["inputTokens", "promptTokens", "input_tokens", "prompt_tokens"]);
-    const outputTokens = readTokenCount(candidate, ["outputTokens", "completionTokens", "output_tokens", "completion_tokens"]);
-
-    if (inputTokens !== null || outputTokens !== null) {
-      return { inputTokens, outputTokens };
-    }
-  }
-
-  return { inputTokens: null, outputTokens: null };
-}
-
-function readTokenCount(value: unknown, keys: string[]): number | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const entry = value as Record<string, unknown>;
-  for (const key of keys) {
-    const direct = entry[key];
-    if (typeof direct === "number" && Number.isFinite(direct)) {
-      return Math.max(0, Math.floor(direct));
-    }
-  }
-
-  for (const nestedKey of ["usage", "tokenUsage", "tokens", "openai", "response"]) {
-    const nested = entry[nestedKey];
-    const nestedValue = readTokenCount(nested, keys);
-    if (nestedValue !== null) {
-      return nestedValue;
-    }
-  }
-
-  return null;
-}
-
-function estimateTokens(message: ModelMessage): number {
-  const content = serializeContent(message.content);
-  if (content.trim() === "") {
-    return 0;
-  }
-
-  return Math.ceil(content.length / 4);
 }

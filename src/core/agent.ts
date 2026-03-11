@@ -120,9 +120,16 @@ export class Agent {
       }
     }
 
-    const response = await result.response;
+    const [response, totalUsage] = await Promise.all([result.response, result.totalUsage]);
+    const lastInputTokens = totalUsage.inputTokens;
+    const lastOutputTokens = totalUsage.outputTokens;
     await this.context.add(input.contextId, response.messages as ModelMessage[]);
-    await this.maybeAutoCompact(input).catch((error) => {
+    await this.context.recordTurnUsage(input.contextId, {
+      inputTokens: lastInputTokens,
+      outputTokens: lastOutputTokens,
+      estimatedOutputTokens: estimateTextTokens(assistantText)
+    });
+    await this.maybeAutoCompact(input, lastInputTokens).catch((error) => {
       logger.warn(
         `Auto-compaction failed for context '${input.contextId ?? "default"}': ${error instanceof Error ? error.message : String(error)}`
       );
@@ -174,7 +181,7 @@ export class Agent {
     });
   }
 
-  private async maybeAutoCompact(input: RunTurnInput): Promise<void> {
+  private async maybeAutoCompact(input: RunTurnInput, lastInputTokens?: number): Promise<void> {
     if (input.skipAutoCompact || this.mode !== "main") {
       return;
     }
@@ -183,14 +190,17 @@ export class Agent {
       return;
     }
 
-    const stats = this.context.statistics(input.contextId);
-    const totalTokens = stats.totalInputTokens + stats.totalOutputTokens;
-    if (totalTokens < this.memoryWindow) {
+    if (typeof lastInputTokens !== "number" || !Number.isFinite(lastInputTokens)) {
+      return;
+    }
+
+    const normalizedInputTokens = Math.max(0, Math.floor(lastInputTokens));
+    if (normalizedInputTokens <= this.memoryWindow) {
       return;
     }
 
     logger.info(
-      `Auto-compacting context '${input.contextId ?? "default"}' (${totalTokens} tokens >= memoryWindow ${this.memoryWindow}).`
+      `Auto-compacting context '${input.contextId ?? "default"}' (${normalizedInputTokens} input tokens > memoryWindow ${this.memoryWindow}).`
     );
     await this.compactContext({
       contextId: input.contextId,
@@ -254,4 +264,12 @@ export class Agent {
       })
     };
   }
+}
+
+function estimateTextTokens(text: string): number {
+  if (text.trim() === "") {
+    return 0;
+  }
+
+  return Math.ceil(text.length / 4);
 }
