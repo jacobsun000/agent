@@ -53,6 +53,11 @@ pnpm install
 ### Prepare config
 
 On startup, the app copies missing files from `templates/` into `~/.agent/`.
+For first-time setup, run:
+
+```bash
+pnpm start -- bootstrap
+```
 
 Main config file:
 
@@ -115,6 +120,7 @@ agent gateway stop
 agent gateway restart
 agent gateway uninstall
 agent gateway status
+agent bootstrap
 agent pair <code>
 agent cli --url http://127.0.0.1:8100
 ```
@@ -122,6 +128,7 @@ agent cli --url http://127.0.0.1:8100
 Notes:
 
 - `gateway run`: run the gateway in the foreground
+- `bootstrap`: interactively write `~/.agent/config.jsonc`
 - `gateway install/start/stop/...`: manage the installed user service
 - `pair <code>`: approve a pending pairing code
 - `cli`: open a local CLI session that talks to the HTTP gateway

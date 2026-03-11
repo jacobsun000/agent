@@ -3,7 +3,7 @@ import { hideBin } from "yargs/helpers";
 
 import { runCliClient } from "@/services/cli-client";
 import { startGateway } from "@/services/gateway";
-import { bootstrapWorkspace } from "@/utils/bootstrap";
+import { bootstrapConfigInteractive, bootstrapWorkspace } from "@/utils/bootstrap";
 import { loadConfig } from "@/utils/config";
 import { createLogger } from "@/utils/logger";
 import { approvePairingCode } from "@/utils/pairing";
@@ -127,6 +127,14 @@ Definition: ${status.definitionPath}`);
           .strict()
     )
     .command(
+      "bootstrap",
+      "Interactively initialize ~/.agent/config.jsonc",
+      () => {},
+      async () => {
+        await bootstrapConfigInteractive();
+      }
+    )
+    .command(
       "pair <code>",
       "Approve a pending pairing code",
       (command) =>
@@ -165,7 +173,7 @@ Definition: ${status.definitionPath}`);
         });
       }
     )
-    .demandCommand(1, "Choose `gateway`, `pair`, or `cli`.")
+    .demandCommand(1, "Choose `gateway`, `bootstrap`, `pair`, or `cli`.")
     .strict()
     .help()
     .parseAsync();
