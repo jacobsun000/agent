@@ -17,6 +17,7 @@ type TelegramChannelConfig = {
   token: string;
   onMessage: (message: InboundMessage) => Promise<void>;
   onCompactSession?: (input: { chatId: string }) => Promise<{ message: string }>;
+  onStatsSession?: (input: { chatId: string }) => Promise<{ message: string }>;
   attachmentStore: AttachmentStore;
   transcriptionService: TranscriptionService;
 };
@@ -28,6 +29,7 @@ export class TelegramChannel implements Channel {
   private readonly bot: Telegraf;
   private readonly onMessage: TelegramChannelConfig["onMessage"];
   private readonly onCompactSession?: TelegramChannelConfig["onCompactSession"];
+  private readonly onStatsSession?: TelegramChannelConfig["onStatsSession"];
   private readonly attachmentStore: AttachmentStore;
   private readonly transcriptionService: TranscriptionService;
 
@@ -35,10 +37,29 @@ export class TelegramChannel implements Channel {
     this.bot = new Telegraf(config.token);
     this.onMessage = config.onMessage;
     this.onCompactSession = config.onCompactSession;
+    this.onStatsSession = config.onStatsSession;
     this.attachmentStore = config.attachmentStore;
     this.transcriptionService = config.transcriptionService;
 
     this.bot.on(message("text"), async (ctx) => {
+      if (isStatsCommand(ctx.message.text)) {
+        if (!this.onStatsSession) {
+          await ctx.reply("Stats are not configured.");
+          return;
+        }
+
+        try {
+          const result = await this.onStatsSession({
+            chatId: String(ctx.chat.id)
+          });
+          await ctx.reply(result.message);
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          await ctx.reply(`Stats failed: ${detail}`);
+        }
+        return;
+      }
+
       if (isCompactCommand(ctx.message.text)) {
         if (!this.onCompactSession) {
           await ctx.reply("Compaction is not configured.");
@@ -298,4 +319,9 @@ function isIgnorableTelegramEditError(error: unknown): boolean {
 function isCompactCommand(text: string): boolean {
   const command = text.trim().split(/\s+/)[0]?.toLowerCase();
   return command === "/compact" || command?.startsWith("/compact@") === true;
+}
+
+function isStatsCommand(text: string): boolean {
+  const command = text.trim().split(/\s+/)[0]?.toLowerCase();
+  return command === "/stats" || command?.startsWith("/stats@") === true;
 }

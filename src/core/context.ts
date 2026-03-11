@@ -7,6 +7,23 @@ import { CONFIG_PATH } from "@/utils/utils";
 
 const HISTORY_PATH = path.join(CONFIG_PATH, "workspace", "memory", "history");
 
+export type ContextStatistics = {
+  sessionId: string;
+  totalMessages: number;
+  totalUserMessages: number;
+  totalModelMessages: number;
+  totalSystemMessages: number;
+  totalToolMessages: number;
+  totalToolCalls: number;
+  totalToolCallSuccesses: number;
+  totalToolCallFailures: number;
+  toolCallSuccessRate: number | null;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  inputTokensEstimated: boolean;
+  outputTokensEstimated: boolean;
+};
+
 function formatDateParts(value: Date): { day: string; minute: string } {
   const year = value.getFullYear();
   const month = String(value.getMonth() + 1).padStart(2, "0");
@@ -69,6 +86,7 @@ function getSessionKey(sessionId?: string): string {
 export interface Context {
   get(sessionId?: string): ModelMessage[];
   add(sessionId: string | undefined, messages: ModelMessage[]): Promise<void>;
+  statistics(sessionId?: string): ContextStatistics;
   compact(
     sessionId: string | undefined,
     options: {
@@ -88,6 +106,7 @@ export interface Context {
 
 export class FileSystemContext implements Context {
   private readonly messagesBySession = new Map<string, ModelMessage[]>();
+  private readonly statsBySession = new Map<string, Omit<ContextStatistics, "sessionId" | "toolCallSuccessRate">>();
 
   get(sessionId?: string): ModelMessage[] {
     const key = getSessionKey(sessionId);
@@ -101,13 +120,50 @@ export class FileSystemContext implements Context {
 
     const key = getSessionKey(sessionId);
     const sessionMessages = this.messagesBySession.get(key) ?? [];
+    const stats = this.getOrCreateStats(key);
+
     sessionMessages.push(...messages);
+    for (const message of messages) {
+      this.updateStatsWithMessage(stats, message);
+    }
+
     this.messagesBySession.set(key, sessionMessages);
     await this.log(messages);
   }
 
+  statistics(sessionId?: string): ContextStatistics {
+    const key = getSessionKey(sessionId);
+    const stats = this.statsBySession.get(key);
+    if (!stats) {
+      return {
+        sessionId: key,
+        totalMessages: 0,
+        totalUserMessages: 0,
+        totalModelMessages: 0,
+        totalSystemMessages: 0,
+        totalToolMessages: 0,
+        totalToolCalls: 0,
+        totalToolCallSuccesses: 0,
+        totalToolCallFailures: 0,
+        toolCallSuccessRate: null,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        inputTokensEstimated: false,
+        outputTokensEstimated: false
+      };
+    }
+
+    return {
+      sessionId: key,
+      ...stats,
+      toolCallSuccessRate: stats.totalToolCalls > 0 ? stats.totalToolCallSuccesses / stats.totalToolCalls : null
+    };
+  }
+
   clear(sessionId?: string): void {
-    this.messagesBySession.delete(getSessionKey(sessionId));
+    const key = getSessionKey(sessionId);
+    this.messagesBySession.delete(key);
+    this.statsBySession.delete(key);
   }
 
   async compact(
@@ -161,6 +217,7 @@ export class FileSystemContext implements Context {
     };
 
     this.messagesBySession.set(key, [compactedNote]);
+    this.updateStatsWithMessage(this.getOrCreateStats(key), compactedNote);
     await this.log([compactedNote]);
 
     return {
@@ -180,6 +237,74 @@ export class FileSystemContext implements Context {
 
     await appendFile(historyFilePath, logEntry, "utf8");
   }
+
+  private getOrCreateStats(key: string): Omit<ContextStatistics, "sessionId" | "toolCallSuccessRate"> {
+    const existing = this.statsBySession.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const initial: Omit<ContextStatistics, "sessionId" | "toolCallSuccessRate"> = {
+      totalMessages: 0,
+      totalUserMessages: 0,
+      totalModelMessages: 0,
+      totalSystemMessages: 0,
+      totalToolMessages: 0,
+      totalToolCalls: 0,
+      totalToolCallSuccesses: 0,
+      totalToolCallFailures: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      inputTokensEstimated: false,
+      outputTokensEstimated: false
+    };
+    this.statsBySession.set(key, initial);
+    return initial;
+  }
+
+  private updateStatsWithMessage(
+    stats: Omit<ContextStatistics, "sessionId" | "toolCallSuccessRate">,
+    message: ModelMessage
+  ): void {
+    const isUser = message.role === "user";
+    const isAssistant = message.role === "assistant";
+    const isSystem = message.role === "system";
+    const isTool = message.role === "tool";
+
+    stats.totalMessages += 1;
+    if (isUser) {
+      stats.totalUserMessages += 1;
+    } else if (isAssistant) {
+      stats.totalModelMessages += 1;
+    } else if (isSystem) {
+      stats.totalSystemMessages += 1;
+    } else if (isTool) {
+      stats.totalToolMessages += 1;
+    }
+
+    const toolStats = extractToolStats(message);
+    stats.totalToolCalls += toolStats.calls;
+    stats.totalToolCallSuccesses += toolStats.successes;
+    stats.totalToolCallFailures += toolStats.failures;
+
+    // Prefer usage on assistant messages; this is where provider token accounting is available.
+    if (isAssistant) {
+      const usage = extractUsageStats(message);
+
+      if (usage.inputTokens !== null) {
+        stats.totalInputTokens += usage.inputTokens;
+      } else {
+        stats.inputTokensEstimated = true;
+      }
+
+      if (usage.outputTokens !== null) {
+        stats.totalOutputTokens += usage.outputTokens;
+      } else {
+        stats.totalOutputTokens += estimateTokens(message);
+        stats.outputTokensEstimated = true;
+      }
+    }
+  }
 }
 
 function buildTranscript(messages: ModelMessage[]): string {
@@ -189,4 +314,102 @@ function buildTranscript(messages: ModelMessage[]): string {
       return [`[${message.role}]`, body === "" ? "[empty]" : body].join("\n");
     })
     .join("\n\n");
+}
+
+function extractToolStats(message: ModelMessage): {
+  calls: number;
+  successes: number;
+  failures: number;
+} {
+  if (typeof message.content === "string") {
+    return { calls: 0, successes: 0, failures: 0 };
+  }
+
+  let calls = 0;
+  let successes = 0;
+  let failures = 0;
+
+  for (const part of message.content) {
+    const hasToolName = "toolName" in part && typeof part.toolName === "string";
+    if (!hasToolName) {
+      continue;
+    }
+
+    if ("input" in part) {
+      calls += 1;
+    }
+
+    if ("output" in part) {
+      successes += 1;
+    }
+
+    if ("errorText" in part && typeof part.errorText === "string") {
+      failures += 1;
+    }
+  }
+
+  return { calls, successes, failures };
+}
+
+function extractUsageStats(message: ModelMessage): {
+  inputTokens: number | null;
+  outputTokens: number | null;
+} {
+  if (typeof message.content === "string") {
+    return { inputTokens: null, outputTokens: null };
+  }
+
+  for (const part of message.content) {
+    if (!("providerMetadata" in part)) {
+      continue;
+    }
+
+    const metadata = part.providerMetadata;
+    if (!metadata || typeof metadata !== "object") {
+      continue;
+    }
+
+    const candidate = metadata as Record<string, unknown>;
+    const inputTokens = readTokenCount(candidate, ["inputTokens", "promptTokens", "input_tokens", "prompt_tokens"]);
+    const outputTokens = readTokenCount(candidate, ["outputTokens", "completionTokens", "output_tokens", "completion_tokens"]);
+
+    if (inputTokens !== null || outputTokens !== null) {
+      return { inputTokens, outputTokens };
+    }
+  }
+
+  return { inputTokens: null, outputTokens: null };
+}
+
+function readTokenCount(value: unknown, keys: string[]): number | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const entry = value as Record<string, unknown>;
+  for (const key of keys) {
+    const direct = entry[key];
+    if (typeof direct === "number" && Number.isFinite(direct)) {
+      return Math.max(0, Math.floor(direct));
+    }
+  }
+
+  for (const nestedKey of ["usage", "tokenUsage", "tokens", "openai", "response"]) {
+    const nested = entry[nestedKey];
+    const nestedValue = readTokenCount(nested, keys);
+    if (nestedValue !== null) {
+      return nestedValue;
+    }
+  }
+
+  return null;
+}
+
+function estimateTokens(message: ModelMessage): number {
+  const content = serializeContent(message.content);
+  if (content.trim() === "") {
+    return 0;
+  }
+
+  return Math.ceil(content.length / 4);
 }

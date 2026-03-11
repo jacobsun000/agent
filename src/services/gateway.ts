@@ -1,4 +1,5 @@
 import { Bus } from "@/bus/bus";
+import { type ContextStatistics } from "@/core/context";
 import { HttpChannel } from "@/channels/http";
 import { TelegramChannel } from "@/channels/telegram";
 import { Agent } from "@/core/agent";
@@ -83,6 +84,28 @@ export async function startGateway(): Promise<GatewayHandle> {
             channel: "telegram",
             chatId
           }),
+        onStatsSession: async ({ chatId }) => {
+          const result = await bus.getSessionStatistics({
+            channel: "telegram",
+            chatId
+          });
+
+          if (!result.paired) {
+            return {
+              message: result.message ?? "Session is not paired."
+            };
+          }
+
+          if (!result.statistics) {
+            return {
+              message: "No statistics available."
+            };
+          }
+
+          return {
+            message: formatContextStatistics(result.statistics)
+          };
+        },
         onMessage: async (message) => {
           await bus.dispatch(message);
         }
@@ -137,4 +160,26 @@ Compaction model: ${parsedAgentModel.modelId}`);
     stop,
     waitUntilStopped
   };
+}
+
+function formatContextStatistics(stats: ContextStatistics): string {
+  const successRate = stats.toolCallSuccessRate === null
+    ? "n/a"
+    : `${(stats.toolCallSuccessRate * 100).toFixed(1)}%`;
+
+  return [
+    "Session statistics:",
+    `- session: ${stats.sessionId}`,
+    `- total messages: ${stats.totalMessages}`,
+    `- user messages: ${stats.totalUserMessages}`,
+    `- model messages: ${stats.totalModelMessages}`,
+    `- system messages: ${stats.totalSystemMessages}`,
+    `- tool messages: ${stats.totalToolMessages}`,
+    `- total tool calls: ${stats.totalToolCalls}`,
+    `- tool successes: ${stats.totalToolCallSuccesses}`,
+    `- tool failures: ${stats.totalToolCallFailures}`,
+    `- tool success rate: ${successRate}`,
+    `- total input tokens: ${stats.totalInputTokens}${stats.inputTokensEstimated ? " (estimated)" : ""}`,
+    `- total output tokens: ${stats.totalOutputTokens}${stats.outputTokensEstimated ? " (estimated)" : ""}`
+  ].join("\n");
 }

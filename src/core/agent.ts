@@ -1,7 +1,7 @@
 import { streamText, stepCountIs, type LanguageModel, type ModelMessage } from "ai";
 
 import { type ChannelName } from "@/channels/types";
-import { type Context, FileSystemContext } from "@/core/context";
+import { type Context, type ContextStatistics, FileSystemContext } from "@/core/context";
 import { createCronTool, type CronToolInput } from "@/core/tools/cron";
 import { type InboundImage } from "@/bus/bus";
 import { createExecTool } from "@/core/tools/exec";
@@ -124,6 +124,10 @@ export class Agent {
 
   clearContext(contextId?: string) {
     this.context.clear(contextId);
+  }
+
+  getContextStatistics(contextId?: string): ContextStatistics {
+    return this.context.statistics(contextId);
   }
 
   async compactContext(input: {

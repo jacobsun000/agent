@@ -1,4 +1,5 @@
 import { Agent } from "@/core/agent";
+import { type ContextStatistics } from "@/core/context";
 import { type ChannelName, type Channel, type OutboundAttachment } from "@/channels/types";
 import { ensurePairingCode, isSessionPaired } from "@/utils/pairing";
 import { createLogger } from "@/utils/logger";
@@ -63,6 +64,12 @@ export type CompactSessionResult = {
   compactedResponseId?: string;
 };
 
+export type SessionStatisticsResult = {
+  paired: boolean;
+  message?: string;
+  statistics?: ContextStatistics;
+};
+
 export class Bus {
   private readonly agent: Agent;
   private readonly channels: Channel[] = [];
@@ -117,6 +124,27 @@ export class Bus {
         channel: input.channel,
         chatId: input.chatId
       });
+    });
+  }
+
+  async getSessionStatistics(input: {
+    channel: ChannelName;
+    chatId: string;
+  }): Promise<SessionStatisticsResult> {
+    const sessionKey = `${input.channel}:${input.chatId}`;
+    return this.withSessionLock(sessionKey, async () => {
+      if (!isSessionPaired(sessionKey)) {
+        const pairing = ensurePairingCode(sessionKey);
+        return {
+          paired: false,
+          message: `Session is not paired yet. Pairing code: ${pairing.code}`
+        };
+      }
+
+      return {
+        paired: true,
+        statistics: this.agent.getContextStatistics(sessionKey)
+      };
     });
   }
 
