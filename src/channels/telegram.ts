@@ -3,6 +3,7 @@ import path from "node:path";
 import { Telegraf } from "telegraf";
 import { Input } from "telegraf";
 import { message } from "telegraf/filters";
+import telegramifyMarkdown = require("telegramify-markdown");
 
 import { type Channel, type OutboundAttachment } from "@/channels/types";
 import { type InboundMessage, type OutboundMessageStream } from "@/bus/bus";
@@ -237,9 +238,11 @@ export class TelegramChannel implements Channel {
         return;
       }
 
+      const markdown = telegramifyMarkdown(content, "escape");
+
       try {
-        await this.bot.telegram.editMessageText(chatId, initialMessage.message_id, undefined, content, {
-          parse_mode: "Markdown"
+        await this.bot.telegram.editMessageText(chatId, initialMessage.message_id, undefined, markdown, {
+          parse_mode: "MarkdownV2"
         });
         lastSentText = content;
       } catch (error) {
