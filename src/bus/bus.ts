@@ -22,12 +22,21 @@ export type InboundVoice = {
   transcript: string;
 };
 
+export type InboundFile = {
+  mimeType: string;
+  originalName: string;
+  path: string;
+  sizeBytes: number;
+  caption?: string;
+};
+
 export type InboundMessage = {
   channel: ChannelName;
   chatId: string;
   text: string;
   images?: InboundImage[];
   voice?: InboundVoice;
+  files?: InboundFile[];
   source?: {
     type: "sub_agent";
     label: string;
@@ -148,7 +157,7 @@ export class Bus {
         channel: message.channel,
         chatId: message.chatId,
         contextId: sessionKey,
-        text: message.text,
+        text: this.buildAgentInputText(message),
         images: message.images,
         onTextDelta: async (delta) => {
           if (replyStream) {
@@ -185,9 +194,26 @@ export class Bus {
 
   private formatMessage(sessionKey: string, text: string): string {
     const keyPart = sessionKey.split('-')[0];
-    const textFormatted = text.replaceAll('\n', ' ')
+    const textFormatted = text.replaceAll("\n", " ");
     const textPart = textFormatted.slice(0, 64);
     const textRemainder = textFormatted.length > 64 ? "..." : "";
     return `[${keyPart}]: ${textPart}${textRemainder}`;
+  }
+
+  private buildAgentInputText(message: InboundMessage): string {
+    const filePaths = message.files?.map((file) => file.path) ?? [];
+
+    if (filePaths.length === 0) {
+      return message.text;
+    }
+
+    return [
+      "[ATTACHED_FILES]",
+      "The user uploaded local file attachments. These files are available in the workspace.",
+      ...filePaths.map((filePath) => `- ${filePath}`),
+      "[/ATTACHED_FILES]",
+      "",
+      message.text
+    ].join("\n");
   }
 }

@@ -3,11 +3,13 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 
 import { type InboundMessage, type OutboundMessageStream } from "@/bus/bus";
 import { type Channel } from "@/channels/types";
+import { type AttachmentStore } from "@/services/attachment-store";
 import { createLogger } from "@/utils/logger";
 
 type HttpChannelConfig = {
   host: string;
   port: number;
+  attachmentStore: AttachmentStore;
   onMessage: (message: InboundMessage) => Promise<void>;
 };
 
@@ -19,6 +21,12 @@ type HttpRequestBody = {
     dataBase64: string;
     caption?: string;
   }>;
+  files?: Array<{
+    filename?: string;
+    mimeType?: string;
+    dataBase64: string;
+    caption?: string;
+  }>;
 };
 
 const logger = createLogger("channel:http");
@@ -27,6 +35,7 @@ export class HttpChannel implements Channel {
   readonly name = "http" as const;
   private readonly host: string;
   private readonly port: number;
+  private readonly attachmentStore: AttachmentStore;
   private readonly onMessage: HttpChannelConfig["onMessage"];
   private readonly replyStreams = new Map<string, OutboundMessageStream>();
   private server?: Server;
@@ -34,6 +43,7 @@ export class HttpChannel implements Channel {
   constructor(config: HttpChannelConfig) {
     this.host = config.host;
     this.port = config.port;
+    this.attachmentStore = config.attachmentStore;
     this.onMessage = config.onMessage;
   }
 
@@ -114,6 +124,25 @@ export class HttpChannel implements Channel {
     const body = await this.readJsonBody(request);
     const payload = this.validateRequestBody(body);
     const chatId = payload.chatId ?? this.deriveChatId(request);
+    const files = payload.files
+      ? await Promise.all(
+          payload.files.map(async (file) => {
+            const data = Uint8Array.from(Buffer.from(file.dataBase64, "base64"));
+            const storedFile = await this.attachmentStore.save({
+              data,
+              filename: file.filename
+            });
+
+            return {
+              mimeType: file.mimeType ?? "application/octet-stream",
+              originalName: storedFile.originalName,
+              path: storedFile.path,
+              sizeBytes: storedFile.sizeBytes,
+              caption: file.caption
+            };
+          })
+        )
+      : undefined;
 
     response.writeHead(200, {
       "content-type": "application/x-ndjson; charset=utf-8",
@@ -133,7 +162,8 @@ export class HttpChannel implements Channel {
           mimeType: image.mimeType,
           data: Uint8Array.from(Buffer.from(image.dataBase64, "base64")),
           caption: image.caption
-        }))
+        })),
+        files
       });
     } finally {
       this.detachReplyStream(chatId);
@@ -168,6 +198,7 @@ export class HttpChannel implements Channel {
     const chatId = (value as { chatId?: unknown }).chatId;
     const text = (value as { text?: unknown }).text;
     const images = (value as { images?: unknown }).images;
+    const files = (value as { files?: unknown }).files;
 
     if (chatId !== undefined && (typeof chatId !== "string" || chatId.trim() === "")) {
       throw new Error("`chatId` must be a non-empty string when provided.");
@@ -205,6 +236,39 @@ export class HttpChannel implements Channel {
       }
     }
 
+    if (files !== undefined) {
+      if (!Array.isArray(files)) {
+        throw new Error("`files` must be an array when provided.");
+      }
+
+      for (const [index, file] of files.entries()) {
+        if (!file || typeof file !== "object") {
+          throw new Error(`files[${index}] must be an object.`);
+        }
+
+        const filename = (file as { filename?: unknown }).filename;
+        const mimeType = (file as { mimeType?: unknown }).mimeType;
+        const dataBase64 = (file as { dataBase64?: unknown }).dataBase64;
+        const caption = (file as { caption?: unknown }).caption;
+
+        if (filename !== undefined && (typeof filename !== "string" || filename.trim() === "")) {
+          throw new Error(`files[${index}].filename must be a non-empty string when provided.`);
+        }
+
+        if (mimeType !== undefined && (typeof mimeType !== "string" || mimeType.trim() === "")) {
+          throw new Error(`files[${index}].mimeType must be a non-empty string when provided.`);
+        }
+
+        if (typeof dataBase64 !== "string" || dataBase64.trim() === "") {
+          throw new Error(`files[${index}].dataBase64 must be a non-empty string.`);
+        }
+
+        if (caption !== undefined && typeof caption !== "string") {
+          throw new Error(`files[${index}].caption must be a string when provided.`);
+        }
+      }
+    }
+
     return {
       chatId: typeof chatId === "string" ? chatId.trim() : undefined,
       text,
@@ -215,6 +279,23 @@ export class HttpChannel implements Channel {
             caption:
               typeof (image as { caption?: unknown }).caption === "string"
                 ? (image as { caption: string }).caption
+                : undefined
+          }))
+        : undefined,
+      files: Array.isArray(files)
+        ? files.map((file) => ({
+            filename:
+              typeof (file as { filename?: unknown }).filename === "string"
+                ? (file as { filename: string }).filename.trim()
+                : undefined,
+            mimeType:
+              typeof (file as { mimeType?: unknown }).mimeType === "string"
+                ? (file as { mimeType: string }).mimeType.trim()
+                : undefined,
+            dataBase64: (file as { dataBase64: string }).dataBase64.trim(),
+            caption:
+              typeof (file as { caption?: unknown }).caption === "string"
+                ? (file as { caption: string }).caption
                 : undefined
           }))
         : undefined

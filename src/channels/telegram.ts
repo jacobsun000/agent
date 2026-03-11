@@ -3,6 +3,7 @@ import { message } from "telegraf/filters";
 
 import { type Channel } from "@/channels/types";
 import { type InboundMessage, type OutboundMessageStream } from "@/bus/bus";
+import { type AttachmentStore } from "@/services/attachment-store";
 import { type TranscriptionService } from "@/services/transcribe";
 import { createLogger } from "@/utils/logger";
 
@@ -12,6 +13,7 @@ const TELEGRAM_FLUSH_INTERVAL_MS = 1000;
 type TelegramChannelConfig = {
   token: string;
   onMessage: (message: InboundMessage) => Promise<void>;
+  attachmentStore: AttachmentStore;
   transcriptionService: TranscriptionService;
 };
 
@@ -21,11 +23,13 @@ export class TelegramChannel implements Channel {
   readonly name = "telegram" as const;
   private readonly bot: Telegraf;
   private readonly onMessage: TelegramChannelConfig["onMessage"];
+  private readonly attachmentStore: AttachmentStore;
   private readonly transcriptionService: TranscriptionService;
 
   constructor(config: TelegramChannelConfig) {
     this.bot = new Telegraf(config.token);
     this.onMessage = config.onMessage;
+    this.attachmentStore = config.attachmentStore;
     this.transcriptionService = config.transcriptionService;
 
     this.bot.on(message("text"), async (ctx) => {
@@ -83,21 +87,41 @@ export class TelegramChannel implements Channel {
 
     this.bot.on(message("document"), async (ctx) => {
       const mimeType = ctx.message.document.mime_type;
-      if (!mimeType?.startsWith("image/")) {
+      if (mimeType?.startsWith("image/")) {
+        const documentUrl = await this.bot.telegram.getFileLink(ctx.message.document.file_id);
+        const imageData = await this.downloadFile(documentUrl.toString());
+        const caption = ctx.message.caption?.trim();
+
+        await this.onMessage({
+          channel: this.name,
+          chatId: String(ctx.chat.id),
+          text: caption && caption.length > 0 ? caption : "Please analyze the attached image.",
+          images: [{
+            mimeType,
+            data: imageData,
+            caption
+          }]
+        });
         return;
       }
 
       const documentUrl = await this.bot.telegram.getFileLink(ctx.message.document.file_id);
-      const imageData = await this.downloadFile(documentUrl.toString());
+      const fileData = await this.downloadFile(documentUrl.toString());
       const caption = ctx.message.caption?.trim();
+      const storedFile = await this.attachmentStore.save({
+        data: fileData,
+        filename: ctx.message.document.file_name
+      });
 
       await this.onMessage({
         channel: this.name,
         chatId: String(ctx.chat.id),
-        text: caption && caption.length > 0 ? caption : "Please analyze the attached image.",
-        images: [{
-          mimeType,
-          data: imageData,
+        text: caption && caption.length > 0 ? caption : "Please review the attached file.",
+        files: [{
+          mimeType: mimeType ?? "application/octet-stream",
+          originalName: storedFile.originalName,
+          path: storedFile.path,
+          sizeBytes: storedFile.sizeBytes,
           caption
         }]
       });

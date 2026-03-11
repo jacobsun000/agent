@@ -2,6 +2,7 @@ import { Bus } from "@/bus/bus";
 import { HttpChannel } from "@/channels/http";
 import { TelegramChannel } from "@/channels/telegram";
 import { Agent } from "@/core/agent";
+import { createAttachmentStore } from "@/services/attachment-store";
 import { CronService } from "@/services/cron";
 import { HeartbeatService } from "@/services/heartbeat";
 import { createSubAgentDispatcher } from "@/services/sub-agent-dispatcher";
@@ -21,6 +22,7 @@ export async function startGateway(): Promise<GatewayHandle> {
   const config = loadConfig();
   const provider = getProviderConfig(config);
   const model = createLanguageModel(config, config.agent.model);
+  const attachmentStore = createAttachmentStore();
   const transcriptionService = createTranscriptionService(config);
   let bus!: Bus;
   let cron!: CronService;
@@ -46,6 +48,7 @@ export async function startGateway(): Promise<GatewayHandle> {
     bus.registerChannel(
       new HttpChannel({
         ...config.channels.http,
+        attachmentStore,
         onMessage: async (message) => {
           await bus.dispatch(message);
         }
@@ -57,6 +60,7 @@ export async function startGateway(): Promise<GatewayHandle> {
     bus.registerChannel(
       new TelegramChannel({
         ...config.channels.telegram,
+        attachmentStore,
         transcriptionService,
         onMessage: async (message) => {
           await bus.dispatch(message);
