@@ -3,10 +3,10 @@ import path from "node:path";
 import { createOpenAI } from "@ai-sdk/openai";
 
 import { type Bus } from "@/bus/bus";
-import { type ChannelName } from "@/channels/types";
 import { Agent, type SubAgentRequest } from "@/core/agent";
 import { type Config, getProviderConfig } from "@/utils/config";
 import { createLogger } from "@/utils/logger";
+import { parseSessionTarget } from "@/utils/session-target";
 import { CONFIG_PATH, pathExists } from "@/utils/utils";
 
 const logger = createLogger("heartbeat");
@@ -15,17 +15,13 @@ const HEARTBEAT_FILE_PATH = path.join(CONFIG_PATH, "workspace", "HEARTBEAT.md");
 type HeartbeatServiceConfig = {
   bus: Bus;
   config: Config;
-};
-
-type SessionTarget = {
-  channel: ChannelName;
-  chatId: string;
+  dispatchSubAgent: (request: SubAgentRequest) => Promise<void>;
 };
 
 export class HeartbeatService {
   private readonly bus: Bus;
   private readonly heartbeatAgent: Agent;
-  private readonly reportSession: SessionTarget;
+  private readonly reportSession;
   private readonly intervalMs: number;
   private timer: NodeJS.Timeout | undefined;
   private runPromise: Promise<void> | undefined;
@@ -33,7 +29,7 @@ export class HeartbeatService {
 
   constructor(config: HeartbeatServiceConfig) {
     this.bus = config.bus;
-    this.reportSession = parseSessionTarget(config.config.heartbeat.reportSession);
+    this.reportSession = parseSessionTarget(config.config.heartbeat.reportSession, "heartbeat.reportSession");
     this.intervalMs = Number(config.config.heartbeat.interval) * 1000;
 
     const provider = getProviderConfig(config.config, config.config.heartbeat.model);
@@ -43,9 +39,7 @@ export class HeartbeatService {
     this.heartbeatAgent = new Agent({
       model,
       mode: "heartbeat",
-      onSubAgentSpawn: async (request) => {
-        await this.spawnSubAgent(request, config.config);
-      }
+      onSubAgentSpawn: config.dispatchSubAgent
     });
   }
 
@@ -125,49 +119,6 @@ export class HeartbeatService {
       logger.error(error instanceof Error ? error.message : error);
     }
   }
-
-  private async spawnSubAgent(request: SubAgentRequest, config: Config) {
-    const provider = getProviderConfig(config);
-    const openai = createOpenAI({ apiKey: provider.apiKey });
-    const model = openai(config.agent.model);
-    const subAgent = new Agent({
-      model,
-      mode: "sub_agent",
-      onSubAgentSpawn: async (nestedRequest) => {
-        await this.spawnSubAgent(nestedRequest, config);
-      }
-    });
-    const subAgentContextId = `${request.contextId ?? `${request.channel}:${request.chatId}`}:sub-agent:${request.label}:${Date.now()}`;
-    const response = await subAgent.runTurn({
-      channel: request.channel,
-      chatId: request.chatId,
-      contextId: subAgentContextId,
-      text: request.task
-    });
-
-    await this.bus.dispatchSubAgentResult({
-      ...request,
-      response
-    });
-  }
-}
-
-function parseSessionTarget(value: string): SessionTarget {
-  const separatorIndex = value.indexOf(":");
-  if (separatorIndex === -1) {
-    throw new Error(`Invalid heartbeat.reportSession '${value}'. Expected '<channel>:<chatId>'.`);
-  }
-
-  const channel = value.slice(0, separatorIndex).trim();
-  const chatId = value.slice(separatorIndex + 1).trim();
-  if ((channel !== "http" && channel !== "telegram") || chatId === "") {
-    throw new Error(`Invalid heartbeat.reportSession '${value}'. Expected '<channel>:<chatId>'.`);
-  }
-
-  return {
-    channel,
-    chatId
-  };
 }
 
 function hasActiveTasks(markdown: string): boolean {

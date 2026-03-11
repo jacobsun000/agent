@@ -2,6 +2,7 @@ import { streamText, stepCountIs, type LanguageModel, type ModelMessage } from "
 
 import { type ChannelName } from "@/channels/types";
 import { type Context, FileSystemContext } from "@/core/context";
+import { createCronTool, type CronToolInput } from "@/core/tools/cron";
 import { execTool } from "@/core/tools/exec";
 import { createSubAgentTool } from "@/core/tools/sub-agent";
 import { createLogger } from "@/utils/logger";
@@ -27,6 +28,7 @@ type AgentConfig = {
   recentMessageLimit?: number;
   mode?: AgentMode;
   onSubAgentSpawn?: (request: SubAgentRequest) => Promise<void>;
+  onCronAction?: (input: CronToolInput) => Promise<unknown>;
 };
 
 type RunTurnInput = {
@@ -44,6 +46,7 @@ export class Agent {
   private readonly maxTokens?: number;
   private readonly mode: AgentMode;
   private readonly onSubAgentSpawn?: AgentConfig["onSubAgentSpawn"];
+  private readonly onCronAction?: AgentConfig["onCronAction"];
 
   constructor(config: AgentConfig) {
     this.model = config.model;
@@ -52,6 +55,7 @@ export class Agent {
     this.maxTokens = config.maxTokens;
     this.mode = config.mode ?? "main";
     this.onSubAgentSpawn = config.onSubAgentSpawn;
+    this.onCronAction = config.onCronAction;
   }
 
   async runTurn(input: RunTurnInput): Promise<string> {
@@ -92,6 +96,16 @@ export class Agent {
   private getTools(input: RunTurnInput) {
     return {
       exec: execTool,
+      cron: createCronTool({
+        enabled: this.mode === "main" && !!this.onCronAction,
+        onAction: async (cronInput) => {
+          if (!this.onCronAction) {
+            throw new Error("Cron actions are not configured.");
+          }
+
+          return this.onCronAction(cronInput);
+        }
+      }),
       sub_agent: createSubAgentTool({
         enabled: !!this.onSubAgentSpawn,
         onSpawn: async ({ label, task }) => {

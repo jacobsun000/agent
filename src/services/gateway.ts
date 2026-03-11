@@ -3,8 +3,10 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { Bus } from "@/bus/bus";
 import { HttpChannel } from "@/channels/http";
 import { TelegramChannel } from "@/channels/telegram";
-import { Agent, type SubAgentRequest } from "@/core/agent";
+import { Agent } from "@/core/agent";
+import { CronService } from "@/services/cron";
 import { HeartbeatService } from "@/services/heartbeat";
+import { createSubAgentDispatcher } from "@/services/sub-agent-dispatcher";
 import { createLogger } from "@/utils/logger";
 import { getProviderConfig, loadConfig } from "@/utils/config";
 
@@ -21,33 +23,23 @@ export async function startGateway(): Promise<GatewayHandle> {
   const openai = createOpenAI({ apiKey: provider.apiKey });
   const model = openai(config.agent.model);
   let bus!: Bus;
-  const spawnSubAgent = async (request: SubAgentRequest) => {
-    const subAgent = new Agent({
-      model,
-      mode: "sub_agent",
-      onSubAgentSpawn: spawnSubAgent
-    });
-    const subAgentContextId = `${request.contextId ?? `${request.channel}:${request.chatId}`}:sub-agent:${request.label}:${Date.now()}`;
-    const response = await subAgent.runTurn({
-      channel: request.channel,
-      chatId: request.chatId,
-      contextId: subAgentContextId,
-      text: request.task
-    });
-
-    await bus.dispatchSubAgentResult({
-      ...request,
-      response
-    });
-  };
+  let cron!: CronService;
+  let spawnSubAgent!: ReturnType<typeof createSubAgentDispatcher>;
   const agent = new Agent({
     model,
-    onSubAgentSpawn: spawnSubAgent
+    onSubAgentSpawn: async (request) => spawnSubAgent(request),
+    onCronAction: async (input) => cron.handleToolAction(input)
   });
   bus = new Bus({ agent });
-  const heartbeat = new HeartbeatService({
+  spawnSubAgent = createSubAgentDispatcher({ bus, config });
+  cron = new CronService({
     bus,
     config
+  });
+  const heartbeat = new HeartbeatService({
+    bus,
+    config,
+    dispatchSubAgent: spawnSubAgent
   });
 
   if (config.channels.http.enabled) {
@@ -73,6 +65,7 @@ export async function startGateway(): Promise<GatewayHandle> {
   }
 
   await bus.start();
+  cron.start();
   heartbeat.start();
 
   logger.box(`Agent Gateway
@@ -92,6 +85,7 @@ Model: ${config.agent.model}`);
 
     stopPromise = (async () => {
       try {
+        await cron.stop();
         await heartbeat.stop();
         await bus.stop();
       } finally {

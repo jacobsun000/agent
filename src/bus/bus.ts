@@ -17,6 +17,10 @@ export type InboundMessage = {
     type: "sub_agent";
     label: string;
     task: string;
+  } | {
+    type: "scheduled";
+    scheduler: "cron";
+    jobId: string;
   };
 };
 
@@ -152,12 +156,12 @@ export class Bus {
     try {
       return await channel.createReplyStream(message.chatId);
     } catch (error) {
-      if (message.source?.type !== "sub_agent") {
+      if (message.source?.type !== "sub_agent" && message.source?.type !== "scheduled") {
         throw error;
       }
 
       logger.warn(
-        `Sub-agent follow-up for ${message.channel}:${message.chatId} has no live reply stream; processing internally only.`
+        `${message.source.type === "sub_agent" ? "Sub-agent follow-up" : "Scheduled message"} for ${message.channel}:${message.chatId} has no live reply stream; processing internally only.`
       );
       return undefined;
     }

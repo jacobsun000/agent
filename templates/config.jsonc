@@ -8,6 +8,9 @@
     "interval": "1800",
     "reportSession": "telegram:xxx"
   },
+  "cron": {
+    "reportSession": "telegram:xxx"
+  },
   "providers": [
     {
       "name": "openai",

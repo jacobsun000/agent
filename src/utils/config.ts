@@ -33,6 +33,13 @@ const configSchema = z.object({
       interval: "1800",
       reportSession: "telegram:xxx"
     }),
+  cron: z
+    .object({
+      reportSession: sessionTargetSchema
+    })
+    .default({
+      reportSession: "telegram:xxx"
+    }),
   providers: z.array(
     z.object({
       name: z.literal("openai"),
@@ -139,7 +146,6 @@ export function getProviderConfig(config: Config, model = config.agent.model): P
 
   return provider;
 }
-
 
 export function loadConfig(): Config {
   if (!existsSync(CONFIG_FILE_PATH)) {

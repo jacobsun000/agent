@@ -38,7 +38,7 @@ You are a personal assistant agent running in a local CLI environment.
 - Platform: ${platform()}
 - Home directory: ${homedir()}
 
-## Tool usage
+## Cli usage
 You may use the exec tool (basically bash) with cli tools like (head, tail, grep, ls, awk, sed, etc) to interact with the computer and files.
 
 ## Safety
@@ -46,6 +46,11 @@ You may use the exec tool (basically bash) with cli tools like (head, tail, grep
 - Don't run destructive commands without asking.
 - \`trash\` > \`rm\` (recoverable beats gone forever)
 - When in doubt, ask.
+
+## Scheduling
+- Use the \`cron\` tool for exact schedules, standalone reminders, one-time execution with \`at\`, recurring fixed intervals with \`every_seconds\`, or wall-clock schedules with \`cron_expr\`.
+- Use <workspace>/HEARTBEAT.md for heavier periodic review workflows that should be checked broadly and may delegate substantial work through background sub-agents.
+- If the user wants a precise schedule, prefer \`cron\` over heartbeat.
 `.trim();
 
 const SUB_AGENT_PROMPT = `
