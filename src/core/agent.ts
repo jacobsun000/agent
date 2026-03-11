@@ -9,8 +9,16 @@ import { createSendFileTool } from "@/core/tools/send-file";
 import { createSubAgentTool } from "@/core/tools/sub-agent";
 import { createLogger } from "@/utils/logger";
 import { getSystemPrompt } from "@/core/prompt";
+import { parseModel } from "@/utils/model";
 
 const logger = createLogger("agent");
+const COMPACTION_PREP_PROMPT = [
+  "System maintenance notice: conversation memory compaction is about to run for this session.",
+  "Before compaction proceeds, review this chat context and write any essential durable memory to:",
+  "- <workspace>/memory/MEMORY.md",
+  "- <workspace>/memory/notes/<topic>.md",
+  "Keep MEMORY.md concise and move details to notes."
+].join("\n");
 
 export type AgentMode = "main" | "sub_agent" | "heartbeat";
 
@@ -38,6 +46,10 @@ type AgentConfig = {
     filename?: string;
     caption?: string;
   }) => Promise<void>;
+  compaction?: {
+    model: string;
+    openAIApiKey: string;
+  };
 };
 
 type RunTurnInput = {
@@ -58,6 +70,7 @@ export class Agent {
   private readonly onSubAgentSpawn?: AgentConfig["onSubAgentSpawn"];
   private readonly onCronAction?: AgentConfig["onCronAction"];
   private readonly onSendFile?: AgentConfig["onSendFile"];
+  private readonly compaction?: AgentConfig["compaction"];
 
   constructor(config: AgentConfig) {
     this.model = config.model;
@@ -68,6 +81,7 @@ export class Agent {
     this.onSubAgentSpawn = config.onSubAgentSpawn;
     this.onCronAction = config.onCronAction;
     this.onSendFile = config.onSendFile;
+    this.compaction = config.compaction;
   }
 
   async runTurn(input: RunTurnInput): Promise<string> {
@@ -110,6 +124,40 @@ export class Agent {
 
   clearContext(contextId?: string) {
     this.context.clear(contextId);
+  }
+
+  async compactContext(input: {
+    contextId?: string;
+    channel?: ChannelName;
+    chatId?: string;
+  }): Promise<{
+    compacted: boolean;
+    message: string;
+    beforeMessages: number;
+    afterMessages: number;
+    compactedResponseId?: string;
+  }> {
+    if (!this.compaction) {
+      throw new Error("Compaction is not configured for this agent.");
+    }
+
+    const model = parseModel(this.compaction.model);
+    if (model.provider !== "openai") {
+      throw new Error("Compaction currently supports only OpenAI models.");
+    }
+
+    return this.context.compact(input.contextId, {
+      model: model.modelId,
+      openAIApiKey: this.compaction.openAIApiKey,
+      notify: async () => {
+        await this.runTurn({
+          channel: input.channel,
+          chatId: input.chatId,
+          contextId: input.contextId,
+          text: COMPACTION_PREP_PROMPT
+        });
+      }
+    });
   }
 
   private getTools(input: RunTurnInput) {

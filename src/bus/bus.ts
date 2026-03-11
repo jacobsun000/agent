@@ -55,6 +55,14 @@ type BusConfig = {
   agent: Agent;
 };
 
+export type CompactSessionResult = {
+  compacted: boolean;
+  message: string;
+  beforeMessages: number;
+  afterMessages: number;
+  compactedResponseId?: string;
+};
+
 export class Bus {
   private readonly agent: Agent;
   private readonly channels: Channel[] = [];
@@ -83,22 +91,33 @@ export class Bus {
 
   async dispatch(message: InboundMessage) {
     const sessionKey = `${message.channel}:${message.chatId}`;
-    const previousRun = this.sessionLocks.get(sessionKey) ?? Promise.resolve();
-    const currentRun = previousRun
-      .catch(() => undefined)
-      .then(async () => {
-        await this.processMessage(sessionKey, message);
-      });
+    await this.withSessionLock(sessionKey, async () => {
+      await this.processMessage(sessionKey, message);
+    });
+  }
 
-    this.sessionLocks.set(sessionKey, currentRun);
-
-    try {
-      await currentRun;
-    } finally {
-      if (this.sessionLocks.get(sessionKey) === currentRun) {
-        this.sessionLocks.delete(sessionKey);
+  async compactSession(input: {
+    channel: ChannelName;
+    chatId: string;
+  }): Promise<CompactSessionResult> {
+    const sessionKey = `${input.channel}:${input.chatId}`;
+    return this.withSessionLock(sessionKey, async () => {
+      if (!isSessionPaired(sessionKey)) {
+        const pairing = ensurePairingCode(sessionKey);
+        return {
+          compacted: false,
+          message: `Session is not paired yet. Pairing code: ${pairing.code}`,
+          beforeMessages: 0,
+          afterMessages: 0
+        };
       }
-    }
+
+      return this.agent.compactContext({
+        contextId: sessionKey,
+        channel: input.channel,
+        chatId: input.chatId
+      });
+    });
   }
 
   async start() {
@@ -228,5 +247,25 @@ export class Bus {
       "",
       message.text
     ].join("\n");
+  }
+
+  private async withSessionLock<T>(sessionKey: string, work: () => Promise<T>): Promise<T> {
+    const previousRun = this.sessionLocks.get(sessionKey) ?? Promise.resolve();
+    let release!: () => void;
+    const lock = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queuedRun = previousRun.catch(() => undefined).then(() => lock);
+    this.sessionLocks.set(sessionKey, queuedRun);
+
+    await previousRun.catch(() => undefined);
+    try {
+      return await work();
+    } finally {
+      release();
+      if (this.sessionLocks.get(sessionKey) === queuedRun) {
+        this.sessionLocks.delete(sessionKey);
+      }
+    }
   }
 }

@@ -9,7 +9,7 @@ import { createSubAgentDispatcher } from "@/services/sub-agent-dispatcher";
 import { createTranscriptionService } from "@/services/transcribe";
 import { createLogger } from "@/utils/logger";
 import { getProviderConfig, loadConfig } from "@/utils/config";
-import { createLanguageModel } from "@/utils/model";
+import { createLanguageModel, parseModel } from "@/utils/model";
 
 const logger = createLogger("gateway");
 
@@ -21,6 +21,7 @@ type GatewayHandle = {
 export async function startGateway(): Promise<GatewayHandle> {
   const config = loadConfig();
   const provider = getProviderConfig(config);
+  const parsedAgentModel = parseModel(config.agent.model);
   const model = createLanguageModel(config, config.agent.model);
   const attachmentStore = createAttachmentStore();
   const transcriptionService = createTranscriptionService(config);
@@ -41,6 +42,10 @@ export async function startGateway(): Promise<GatewayHandle> {
           caption
         }
       });
+    },
+    compaction: {
+      model: config.agent.model,
+      openAIApiKey: getProviderConfig(config, config.agent.model).apiKey
     }
   });
   bus = new Bus({ agent });
@@ -73,6 +78,11 @@ export async function startGateway(): Promise<GatewayHandle> {
         ...config.channels.telegram,
         attachmentStore,
         transcriptionService,
+        onCompactSession: async ({ chatId }) =>
+          bus.compactSession({
+            channel: "telegram",
+            chatId
+          }),
         onMessage: async (message) => {
           await bus.dispatch(message);
         }
@@ -84,9 +94,16 @@ export async function startGateway(): Promise<GatewayHandle> {
   cron.start();
   heartbeat.start();
 
+  if (typeof config.agent.memoryWindow === "number") {
+    logger.info(
+      `Configured agent.memoryWindow=${config.agent.memoryWindow}, but automatic compaction is not enabled yet because token counting is not implemented.`
+    );
+  }
+
   logger.box(`Agent Gateway
 Provider: ${provider.name}
-Model: ${config.agent.model}`);
+Model: ${config.agent.model}
+Compaction model: ${parsedAgentModel.modelId}`);
 
   let stopPromise: Promise<void> | undefined;
   let resolveStopped!: () => void;

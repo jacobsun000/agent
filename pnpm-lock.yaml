@@ -20,6 +20,9 @@ importers:
       jsonc-parser:
         specifier: ^3.3.1
         version: 3.3.1
+      openai:
+        specifier: ^6.27.0
+        version: 6.27.0(zod@4.3.6)
       telegraf:
         specifier: ^4.16.3
         version: 4.16.3
@@ -359,6 +362,18 @@ packages:
       encoding:
         optional: true
 
+  openai@6.27.0:
+    resolution: {integrity: sha512-osTKySlrdYrLYTt0zjhY8yp0JUBmWDCN+Q+QxsV4xMQnnoVFpylgKGgxwN8sSdTNw0G4y+WUXs4eCMWpyDNWZQ==}
+    hasBin: true
+    peerDependencies:
+      ws: ^8.18.0
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      ws:
+        optional: true
+      zod:
+        optional: true
+
   p-timeout@4.1.0:
     resolution: {integrity: sha512-+/wmHtzJuWii1sXn3HCuH/FTwGhrp4tmJTxSKJbfS+vkipci6osxXM5mY0jUiRzWKMTgUT8l7HFbeSwZAynqHw==}
     engines: {node: '>=10'}
@@ -657,6 +672,10 @@ snapshots:
   node-fetch@2.7.0:
     dependencies:
       whatwg-url: 5.0.0
+
+  openai@6.27.0(zod@4.3.6):
+    optionalDependencies:
+      zod: 4.3.6
 
   p-timeout@4.1.0: {}
 

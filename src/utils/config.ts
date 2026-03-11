@@ -22,7 +22,8 @@ const sessionTargetSchema = z.string().trim().regex(/^(http|telegram):.+$/, {
 const configSchema = z.object({
   agent: z.object({
     model: nonEmptyString,
-    transcriptionModel: nonEmptyString.default("openai/gpt-4o-mini-transcribe")
+    transcriptionModel: nonEmptyString.default("openai/gpt-4o-mini-transcribe"),
+    memoryWindow: z.int().positive().optional()
   }),
   heartbeat: z
     .object({

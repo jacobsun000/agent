@@ -2,7 +2,8 @@
   // This file is bootstrapped into ~/.agent/config.jsonc. Fill in your values.
   "agent": {
     "model": "openai/gpt-5.4",
-    "transcriptionModel": "openai/gpt-4o-mini-transcribe"
+    "transcriptionModel": "openai/gpt-4o-mini-transcribe",
+    "memoryWindow": 120000
   },
   "heartbeat": {
     "model": "openai/gpt-5-mini",

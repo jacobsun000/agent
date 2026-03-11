@@ -1,6 +1,7 @@
 import { appendFile } from "node:fs/promises";
 import path from "node:path";
 import { type ModelMessage } from "ai";
+import OpenAI from "openai";
 
 import { CONFIG_PATH } from "@/utils/utils";
 
@@ -68,6 +69,20 @@ function getSessionKey(sessionId?: string): string {
 export interface Context {
   get(sessionId?: string): ModelMessage[];
   add(sessionId: string | undefined, messages: ModelMessage[]): Promise<void>;
+  compact(
+    sessionId: string | undefined,
+    options: {
+      model: string;
+      openAIApiKey: string;
+      notify?: () => Promise<void>;
+    }
+  ): Promise<{
+    compacted: boolean;
+    message: string;
+    beforeMessages: number;
+    afterMessages: number;
+    compactedResponseId?: string;
+  }>;
   clear(sessionId?: string): void;
 }
 
@@ -95,6 +110,68 @@ export class FileSystemContext implements Context {
     this.messagesBySession.delete(getSessionKey(sessionId));
   }
 
+  async compact(
+    sessionId: string | undefined,
+    options: {
+      model: string;
+      openAIApiKey: string;
+      notify?: () => Promise<void>;
+    }
+  ): Promise<{
+    compacted: boolean;
+    message: string;
+    beforeMessages: number;
+    afterMessages: number;
+    compactedResponseId?: string;
+  }> {
+    const key = getSessionKey(sessionId);
+    const beforeMessages = (this.messagesBySession.get(key) ?? []).length;
+
+    if (beforeMessages === 0) {
+      return {
+        compacted: false,
+        message: "No conversation history to compact.",
+        beforeMessages,
+        afterMessages: 0
+      };
+    }
+
+    if (options.notify) {
+      await options.notify();
+    }
+
+    const messagesToCompact = this.messagesBySession.get(key) ?? [];
+    const transcript = buildTranscript(messagesToCompact);
+
+    const client = new OpenAI({
+      apiKey: options.openAIApiKey
+    });
+    const compactedResponse = await client.responses.compact({
+      model: options.model,
+      input: transcript
+    });
+
+    const compactedNote: ModelMessage = {
+      role: "system",
+      content: [
+        "Conversation memory was compacted by the system.",
+        `Compaction response id: ${compactedResponse.id}`,
+        "Essential long-term context should be in MEMORY.md and notes."
+      ].join("\n")
+    };
+
+    this.messagesBySession.set(key, [compactedNote]);
+    await this.log([compactedNote]);
+
+    return {
+      compacted: true,
+      message: `Compaction completed. Context is now reset to a compacted marker (response: ${compactedResponse.id}).`,
+      beforeMessages: messagesToCompact.length,
+      afterMessages: 1,
+      compactedResponseId: compactedResponse.id
+    };
+  }
+
   private async log(messages: ModelMessage[]): Promise<void> {
     const now = new Date();
     const { day, minute } = formatDateParts(now);
@@ -103,4 +180,13 @@ export class FileSystemContext implements Context {
 
     await appendFile(historyFilePath, logEntry, "utf8");
   }
+}
+
+function buildTranscript(messages: ModelMessage[]): string {
+  return messages
+    .map((message) => {
+      const body = serializeContent(message.content);
+      return [`[${message.role}]`, body === "" ? "[empty]" : body].join("\n");
+    })
+    .join("\n\n");
 }
