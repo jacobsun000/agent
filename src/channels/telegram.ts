@@ -6,7 +6,7 @@ import { type InboundMessage, type OutboundMessageStream } from "@/bus/bus";
 import { createLogger } from "@/utils/logger";
 
 
-const TELEGRAM_FLUSH_INTERVAL_MS = 500;
+const TELEGRAM_FLUSH_INTERVAL_MS = 1000;
 
 type TelegramChannelConfig = {
   token: string;
