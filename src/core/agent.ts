@@ -4,7 +4,7 @@ import { type ChannelName } from "@/channels/types";
 import { type Context, FileSystemContext } from "@/core/context";
 import { createCronTool, type CronToolInput } from "@/core/tools/cron";
 import { type InboundImage } from "@/bus/bus";
-import { execTool } from "@/core/tools/exec";
+import { createExecTool } from "@/core/tools/exec";
 import { createSendFileTool } from "@/core/tools/send-file";
 import { createSubAgentTool } from "@/core/tools/sub-agent";
 import { createLogger } from "@/utils/logger";
@@ -114,7 +114,7 @@ export class Agent {
 
   private getTools(input: RunTurnInput) {
     return {
-      exec: execTool,
+      exec: createExecTool(this.mode),
       cron: createCronTool({
         enabled: this.mode === "main" && !!this.onCronAction,
         onAction: async (cronInput) => {

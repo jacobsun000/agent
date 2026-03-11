@@ -4,6 +4,9 @@ import { z } from "zod";
 
 const MAX_OUTPUT_CHARS = 8192;
 const DEFAULT_TIMEOUT_MS = 60_000;
+const SUB_AGENT_LLM_CLI_TIMEOUT_MS = 60 * 60 * 1_000;
+
+type ExecToolMode = "main" | "sub_agent" | "heartbeat";
 
 type ExecResult = {
   exitCode: number | null;
@@ -12,18 +15,20 @@ type ExecResult = {
   timedOut: boolean;
 };
 
-export const execTool = tool({
-  title: "exec",
-  description: "Execute a shell command and return its output. Use with caution.",
-  inputSchema: z.object({
-    command: z.string().min(1, "Command must not be empty.")
-  }),
-  async execute({ command }) {
-    return executeBash(command);
-  }
-});
+export function createExecTool(mode: ExecToolMode) {
+  return tool({
+    title: "exec",
+    description: "Execute a shell command and return its output. Use with caution.",
+    inputSchema: z.object({
+      command: z.string().min(1, "Command must not be empty.")
+    }),
+    async execute({ command }) {
+      return executeBash(command, resolveTimeoutMs(mode, command));
+    }
+  });
+}
 
-function executeBash(command: string): Promise<ExecResult> {
+function executeBash(command: string, timeoutMs: number): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
     const child = spawn("bash", ["-lc", command], {
       cwd: process.cwd(),
@@ -38,7 +43,7 @@ function executeBash(command: string): Promise<ExecResult> {
       timedOut = true;
       child.kill("SIGTERM");
       setTimeout(() => child.kill("SIGKILL"), 1_000).unref();
-    }, DEFAULT_TIMEOUT_MS);
+    }, timeoutMs);
 
     child.stdout.on("data", (chunk: Buffer | string) => {
       stdout += chunk.toString();
@@ -63,6 +68,30 @@ function executeBash(command: string): Promise<ExecResult> {
       });
     });
   });
+}
+
+function resolveTimeoutMs(mode: ExecToolMode, command: string): number {
+  if (mode !== "sub_agent") {
+    return DEFAULT_TIMEOUT_MS;
+  }
+
+  const executable = extractLeadingExecutable(command);
+  if (executable === "codex" || executable === "claude") {
+    return SUB_AGENT_LLM_CLI_TIMEOUT_MS;
+  }
+
+  return DEFAULT_TIMEOUT_MS;
+}
+
+function extractLeadingExecutable(command: string): string | null {
+  const trimmed = command.trimStart();
+  const match = trimmed.match(/^([^\s;&|]+)/);
+  if (!match) {
+    return null;
+  }
+
+  const executable = match[1].split("/").pop();
+  return executable ?? null;
 }
 
 function truncate(value: string): string {
