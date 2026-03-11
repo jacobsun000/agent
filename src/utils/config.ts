@@ -9,11 +9,30 @@ const CONFIG_FILE_PATH = path.join(CONFIG_PATH, "config.jsonc");
 
 const nonEmptyString = z.string().trim().min(1);
 const portSchema = z.int().min(1).max(65535);
+const secondsStringSchema = z
+  .string()
+  .trim()
+  .regex(/^\d+$/, "Must be an integer number of seconds.")
+  .refine((value) => Number(value) > 0, "Must be greater than 0.");
+const sessionTargetSchema = z.string().trim().regex(/^(http|telegram):.+$/, {
+  message: "Must be in the format '<channel>:<chatId>'."
+});
 
 const configSchema = z.object({
   agent: z.object({
     model: nonEmptyString
   }),
+  heartbeat: z
+    .object({
+      model: nonEmptyString.default("openai/gpt-5-mini"),
+      interval: secondsStringSchema.default("1800"),
+      reportSession: sessionTargetSchema
+    })
+    .default({
+      model: "openai/gpt-5-mini",
+      interval: "1800",
+      reportSession: "telegram:xxx"
+    }),
   providers: z.array(
     z.object({
       name: z.literal("openai"),
@@ -71,6 +90,23 @@ const configSchema = z.object({
     context.addIssue({
       code: "custom",
       path: ["agent", "model"],
+      message: error instanceof Error ? error.message : "Invalid model format."
+    });
+  }
+
+  try {
+    const heartbeatProviderName = getProviderNameFromModel(value.heartbeat.model);
+    if (!seenProviders.has(heartbeatProviderName)) {
+      context.addIssue({
+        code: "custom",
+        path: ["heartbeat", "model"],
+        message: `No provider named '${heartbeatProviderName}' configured in providers.`
+      });
+    }
+  } catch (error) {
+    context.addIssue({
+      code: "custom",
+      path: ["heartbeat", "model"],
       message: error instanceof Error ? error.message : "Invalid model format."
     });
   }

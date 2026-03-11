@@ -9,7 +9,7 @@ import { getSystemPrompt } from "@/core/prompt";
 
 const logger = createLogger("agent");
 
-export type AgentMode = "main" | "sub_agent";
+export type AgentMode = "main" | "sub_agent" | "heartbeat";
 
 export type SubAgentRequest = {
   channel: ChannelName;

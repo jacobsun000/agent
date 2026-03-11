@@ -4,6 +4,7 @@ import { Bus } from "@/bus/bus";
 import { HttpChannel } from "@/channels/http";
 import { TelegramChannel } from "@/channels/telegram";
 import { Agent, type SubAgentRequest } from "@/core/agent";
+import { HeartbeatService } from "@/services/heartbeat";
 import { createLogger } from "@/utils/logger";
 import { getProviderConfig, loadConfig } from "@/utils/config";
 
@@ -44,6 +45,10 @@ export async function startGateway(): Promise<GatewayHandle> {
     onSubAgentSpawn: spawnSubAgent
   });
   bus = new Bus({ agent });
+  const heartbeat = new HeartbeatService({
+    bus,
+    config
+  });
 
   if (config.channels.http.enabled) {
     bus.registerChannel(
@@ -68,6 +73,7 @@ export async function startGateway(): Promise<GatewayHandle> {
   }
 
   await bus.start();
+  heartbeat.start();
 
   logger.box(`Agent Gateway
 Provider: ${provider.name}
@@ -86,6 +92,7 @@ Model: ${config.agent.model}`);
 
     stopPromise = (async () => {
       try {
+        await heartbeat.stop();
         await bus.stop();
       } finally {
         resolveStopped();

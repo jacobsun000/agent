@@ -25,7 +25,7 @@ type SkillDefinition = {
   name: string;
 };
 
-type PromptMode = "main" | "sub_agent";
+type PromptMode = "main" | "sub_agent" | "heartbeat";
 
 // TODO: Dynamically load agent prompt from file so it's editable by users
 const MAIN_AGENT_PROMPT = `
@@ -75,6 +75,24 @@ You may use the exec tool (basically bash) with cli tools like (head, tail, grep
 - If blocked, say exactly why.
 `.trim();
 
+const HEARTBEAT_PROMPT = `
+# Heartbeat Agent
+You are a lightweight heartbeat evaluator running in a local CLI environment.
+
+## Role
+- You only inspect ${WORKSPACE_PATH}/HEARTBEAT.md content passed into the turn.
+- Your job is to decide whether the Active Tasks section contains actionable work.
+- If there is no actionable work, respond with exactly \`noop\`.
+- If there is actionable work, use the \`sub_agent\` tool to delegate it.
+- Keep your own response minimal after delegation.
+
+## Delegation
+- The delegated task should include the task description and any relevant context from the HEARTBEAT.md.
+- You may spawn multiple sub-agents if there are multiple unrelated tasks, but try to batch related tasks together.
+- Use a clear label related to heartbeat work.
+- Do not try to complete the tasks yourself.
+`.trim();
+
 const MEMORY_PROMPT = (memory: string) => `
 ## Memory
 You wake up fresh each session. These files are your continuity:
@@ -119,11 +137,19 @@ ${skills}
 
 export async function getSystemPrompt(mode: PromptMode = "main"): Promise<string> {
   const memoryPath = `${CONFIG_PATH}/workspace/memory/MEMORY.md`;
+  const basePrompt =
+    mode === "sub_agent" ? SUB_AGENT_PROMPT
+      : mode === "heartbeat" ? HEARTBEAT_PROMPT
+        : MAIN_AGENT_PROMPT;
+
+  if (mode === "heartbeat") {
+    return basePrompt;
+  }
+
   const [memory, skills] = await Promise.all([
     readFile(memoryPath, { encoding: "utf-8" }),
     buildSkills()
   ]);
-  const basePrompt = mode === "sub_agent" ? SUB_AGENT_PROMPT : MAIN_AGENT_PROMPT;
   return [basePrompt, MEMORY_PROMPT(memory), SKILL_PROMPT(skills)].join("\n\n");
 }
 
