@@ -1,3 +1,7 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import path from "node:path";
+
 import { createLogger } from "@/utils/logger";
 
 const logger = createLogger("cli");
@@ -9,7 +13,8 @@ type RunCliClientOptions = {
 type HttpChannelEvent =
   | { type: "delta"; delta: string }
   | { type: "finish" }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "attachment"; filename: string; path: string; caption?: string; dataBase64: string };
 
 export async function runCliClient(options: RunCliClientOptions) {
   logger.box("CLI agent ready.\nType a request, or use `exit` to quit.");
@@ -87,6 +92,19 @@ async function streamHttpReply(input: {
       return;
     }
 
+    if (event.type === "attachment") {
+      if (hasOutput) {
+        process.stdout.write("\n");
+      }
+
+      const savedPath = await saveAttachment(event);
+      logger.info(`Attachment received: ${savedPath}`);
+      if (event.caption) {
+        logger.info(`Attachment caption: ${event.caption}`);
+      }
+      return;
+    }
+
     if (event.type === "finish" && hasOutput) {
       process.stdout.write("\n");
     }
@@ -111,4 +129,20 @@ async function streamHttpReply(input: {
   if (trailing.trim() !== "") {
     await flushLine(trailing);
   }
+}
+
+async function saveAttachment(event: Extract<HttpChannelEvent, { type: "attachment" }>): Promise<string> {
+  const now = new Date();
+  const monthDirectory = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const targetDirectory = path.join(homedir(), ".agent", "workspace", "download", "received", monthDirectory);
+  await mkdir(targetDirectory, { recursive: true });
+
+  const targetPath = path.join(targetDirectory, sanitizeFilename(event.filename));
+  await writeFile(targetPath, Buffer.from(event.dataBase64, "base64"));
+  return targetPath;
+}
+
+function sanitizeFilename(filename: string): string {
+  const sanitized = path.basename(filename).replace(/[^a-zA-Z0-9._-]+/g, "-");
+  return sanitized === "" ? "attachment.bin" : sanitized;
 }

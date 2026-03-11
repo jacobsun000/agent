@@ -30,7 +30,18 @@ export async function startGateway(): Promise<GatewayHandle> {
   const agent = new Agent({
     model,
     onSubAgentSpawn: async (request) => spawnSubAgent(request),
-    onCronAction: async (input) => cron.handleToolAction(input)
+    onCronAction: async (input) => cron.handleToolAction(input),
+    onSendFile: async ({ channel, chatId, path, filename, caption }) => {
+      await bus.sendAttachment({
+        channel,
+        chatId,
+        attachment: {
+          path,
+          filename,
+          caption
+        }
+      });
+    }
   });
   bus = new Bus({ agent });
   spawnSubAgent = createSubAgentDispatcher({ bus, config });

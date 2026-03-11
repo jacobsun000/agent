@@ -1,7 +1,10 @@
+import path from "node:path";
+
 import { Telegraf } from "telegraf";
+import { Input } from "telegraf";
 import { message } from "telegraf/filters";
 
-import { type Channel } from "@/channels/types";
+import { type Channel, type OutboundAttachment } from "@/channels/types";
 import { type InboundMessage, type OutboundMessageStream } from "@/bus/bus";
 import { type AttachmentStore } from "@/services/attachment-store";
 import { type TranscriptionService } from "@/services/transcribe";
@@ -241,6 +244,14 @@ export class TelegramChannel implements Channel {
         }
       }
     };
+  }
+
+  async sendAttachment(chatId: string, attachment: OutboundAttachment): Promise<void> {
+    await this.bot.telegram.sendDocument(
+      chatId,
+      Input.fromLocalFile(attachment.path, attachment.filename ?? path.basename(attachment.path)),
+      attachment.caption ? { caption: attachment.caption } : undefined
+    );
   }
 
   private async downloadFile(url: string): Promise<Uint8Array> {

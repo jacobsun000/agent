@@ -1,8 +1,10 @@
+import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import path from "node:path";
 
 import { type InboundMessage, type OutboundMessageStream } from "@/bus/bus";
-import { type Channel } from "@/channels/types";
+import { type Channel, type OutboundAttachment } from "@/channels/types";
 import { type AttachmentStore } from "@/services/attachment-store";
 import { createLogger } from "@/utils/logger";
 
@@ -29,6 +31,16 @@ type HttpRequestBody = {
   }>;
 };
 
+type HttpChannelEvent =
+  | { type: "delta"; delta: string }
+  | { type: "finish" }
+  | { type: "error"; message: string }
+  | { type: "attachment"; filename: string; path: string; caption?: string; dataBase64: string };
+
+type HttpReplyStream = OutboundMessageStream & {
+  writeEvent(event: HttpChannelEvent): Promise<void>;
+};
+
 const logger = createLogger("channel:http");
 
 export class HttpChannel implements Channel {
@@ -37,7 +49,7 @@ export class HttpChannel implements Channel {
   private readonly port: number;
   private readonly attachmentStore: AttachmentStore;
   private readonly onMessage: HttpChannelConfig["onMessage"];
-  private readonly replyStreams = new Map<string, OutboundMessageStream>();
+  private readonly replyStreams = new Map<string, HttpReplyStream>();
   private server?: Server;
 
   constructor(config: HttpChannelConfig) {
@@ -108,6 +120,23 @@ export class HttpChannel implements Channel {
     }
 
     return replyStream;
+  }
+
+  async sendAttachment(chatId: string, attachment: OutboundAttachment): Promise<void> {
+    const replyStream = this.replyStreams.get(chatId);
+
+    if (!replyStream) {
+      throw new Error(`No HTTP reply stream registered for chat ${chatId}.`);
+    }
+
+    const fileData = await readFile(attachment.path);
+    await replyStream.writeEvent({
+      type: "attachment",
+      filename: attachment.filename ?? path.basename(attachment.path),
+      path: attachment.path,
+      caption: attachment.caption,
+      dataBase64: fileData.toString("base64")
+    });
   }
 
   private async handleRequest(request: IncomingMessage, response: ServerResponse) {
@@ -340,12 +369,9 @@ export class HttpChannel implements Channel {
     return (value % 10_000_000_000n).toString().padStart(10, "0");
   }
 
-  private createHttpReplyStream(response: ServerResponse): OutboundMessageStream {
+  private createHttpReplyStream(response: ServerResponse): HttpReplyStream {
     const writeEvent = async (
-      event:
-        | { type: "delta"; delta: string }
-        | { type: "finish" }
-        | { type: "error"; message: string }
+      event: HttpChannelEvent
     ) => {
       if (response.writableEnded) {
         return;
@@ -363,11 +389,12 @@ export class HttpChannel implements Channel {
       },
       async fail(message) {
         await writeEvent({ type: "error", message });
-      }
+      },
+      writeEvent
     };
   }
 
-  private attachReplyStream(chatId: string, replyStream: OutboundMessageStream) {
+  private attachReplyStream(chatId: string, replyStream: HttpReplyStream) {
     if (this.replyStreams.has(chatId)) {
       throw new Error(`An HTTP reply stream is already active for chat ${chatId}.`);
     }

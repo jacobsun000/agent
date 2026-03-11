@@ -5,6 +5,7 @@ import { type Context, FileSystemContext } from "@/core/context";
 import { createCronTool, type CronToolInput } from "@/core/tools/cron";
 import { type InboundImage } from "@/bus/bus";
 import { execTool } from "@/core/tools/exec";
+import { createSendFileTool } from "@/core/tools/send-file";
 import { createSubAgentTool } from "@/core/tools/sub-agent";
 import { createLogger } from "@/utils/logger";
 import { getSystemPrompt } from "@/core/prompt";
@@ -30,6 +31,13 @@ type AgentConfig = {
   mode?: AgentMode;
   onSubAgentSpawn?: (request: SubAgentRequest) => Promise<void>;
   onCronAction?: (input: CronToolInput) => Promise<unknown>;
+  onSendFile?: (input: {
+    channel: ChannelName;
+    chatId: string;
+    path: string;
+    filename?: string;
+    caption?: string;
+  }) => Promise<void>;
 };
 
 type RunTurnInput = {
@@ -49,6 +57,7 @@ export class Agent {
   private readonly mode: AgentMode;
   private readonly onSubAgentSpawn?: AgentConfig["onSubAgentSpawn"];
   private readonly onCronAction?: AgentConfig["onCronAction"];
+  private readonly onSendFile?: AgentConfig["onSendFile"];
 
   constructor(config: AgentConfig) {
     this.model = config.model;
@@ -58,6 +67,7 @@ export class Agent {
     this.mode = config.mode ?? "main";
     this.onSubAgentSpawn = config.onSubAgentSpawn;
     this.onCronAction = config.onCronAction;
+    this.onSendFile = config.onSendFile;
   }
 
   async runTurn(input: RunTurnInput): Promise<string> {
@@ -132,6 +142,26 @@ export class Agent {
             contextId: input.contextId,
             label,
             task
+          });
+        }
+      }),
+      send_file: createSendFileTool({
+        enabled: !!this.onSendFile,
+        onSend: async ({ path, filename, caption }) => {
+          if (!this.onSendFile) {
+            throw new Error("File sending is not configured.");
+          }
+
+          if (!input.channel || !input.chatId) {
+            throw new Error("Sending files requires a channel and chat ID.");
+          }
+
+          await this.onSendFile({
+            channel: input.channel,
+            chatId: input.chatId,
+            path,
+            filename,
+            caption
           });
         }
       })

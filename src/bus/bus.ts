@@ -1,5 +1,5 @@
 import { Agent } from "@/core/agent";
-import { type ChannelName, type Channel } from "@/channels/types";
+import { type ChannelName, type Channel, type OutboundAttachment } from "@/channels/types";
 import { ensurePairingCode, isSessionPaired } from "@/utils/pairing";
 import { createLogger } from "@/utils/logger";
 
@@ -66,6 +66,19 @@ export class Bus {
 
   registerChannel(channel: Channel) {
     this.channels.push(channel);
+  }
+
+  async sendAttachment(message: {
+    channel: ChannelName;
+    chatId: string;
+    attachment: OutboundAttachment;
+  }) {
+    const channel = this.channels.find((entry) => entry.name === message.channel);
+    if (!channel) {
+      throw new Error(`Channel '${message.channel}' is not registered.`);
+    }
+
+    await channel.sendAttachment(message.chatId, message.attachment);
   }
 
   async dispatch(message: InboundMessage) {
