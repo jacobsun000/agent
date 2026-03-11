@@ -3,7 +3,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { Bus } from "@/bus/bus";
 import { HttpChannel } from "@/channels/http";
 import { TelegramChannel } from "@/channels/telegram";
-import { Agent } from "@/core/agent";
+import { Agent, type SubAgentRequest } from "@/core/agent";
 import { createLogger } from "@/utils/logger";
 import { getProviderConfig, loadConfig } from "@/utils/config";
 
@@ -19,10 +19,31 @@ export async function startGateway(): Promise<GatewayHandle> {
   const provider = getProviderConfig(config);
   const openai = createOpenAI({ apiKey: provider.apiKey });
   const model = openai(config.agent.model);
+  let bus!: Bus;
+  const spawnSubAgent = async (request: SubAgentRequest) => {
+    const subAgent = new Agent({
+      model,
+      mode: "sub_agent",
+      onSubAgentSpawn: spawnSubAgent
+    });
+    const subAgentContextId = `${request.contextId ?? `${request.channel}:${request.chatId}`}:sub-agent:${request.label}:${Date.now()}`;
+    const response = await subAgent.runTurn({
+      channel: request.channel,
+      chatId: request.chatId,
+      contextId: subAgentContextId,
+      text: request.task
+    });
+
+    await bus.dispatchSubAgentResult({
+      ...request,
+      response
+    });
+  };
   const agent = new Agent({
     model,
+    onSubAgentSpawn: spawnSubAgent
   });
-  const bus = new Bus({ agent });
+  bus = new Bus({ agent });
 
   if (config.channels.http.enabled) {
     bus.registerChannel(

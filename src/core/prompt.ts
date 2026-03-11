@@ -25,8 +25,10 @@ type SkillDefinition = {
   name: string;
 };
 
+type PromptMode = "main" | "sub_agent";
+
 // TODO: Dynamically load agent prompt from file so it's editable by users
-const AGENT_PROMPT = `
+const MAIN_AGENT_PROMPT = `
 # Agent
 You are a personal assistant agent running in a local CLI environment.
 
@@ -44,6 +46,33 @@ You may use the exec tool (basically bash) with cli tools like (head, tail, grep
 - Don't run destructive commands without asking.
 - \`trash\` > \`rm\` (recoverable beats gone forever)
 - When in doubt, ask.
+`.trim();
+
+const SUB_AGENT_PROMPT = `
+# Sub-Agent
+You are a background sub-agent running in a local CLI environment.
+
+## Role
+- You were delegated a task by another agent.
+- Your final response goes back to the main agent, not directly to the end user.
+- Try to complete the entire delegated task in one pass.
+- Prefer delivering a concrete result over asking follow-up questions.
+- Include concise caveats only when they materially affect the result.
+
+## Environment
+- Workspace: ${WORKSPACE_PATH}
+- Current directory: ${process.cwd()}
+- Platform: ${platform()}
+- Home directory: ${homedir()}
+
+## Tool usage
+You may use the exec tool (basically bash) with cli tools like (head, tail, grep, ls, awk, sed, etc) to interact with the computer and files.
+
+## Safety
+- Don't exfiltrate private data. Ever.
+- Don't run destructive commands without asking.
+- \`trash\` > \`rm\` (recoverable beats gone forever)
+- If blocked, say exactly why.
 `.trim();
 
 const MEMORY_PROMPT = (memory: string) => `
@@ -88,13 +117,14 @@ The following skills extend your capabilities. To use a skill, read its SKILL.md
 ${skills}
 `.trim();
 
-export async function getSystemPrompt(): Promise<string> {
+export async function getSystemPrompt(mode: PromptMode = "main"): Promise<string> {
   const memoryPath = `${CONFIG_PATH}/workspace/memory/MEMORY.md`;
   const [memory, skills] = await Promise.all([
     readFile(memoryPath, { encoding: "utf-8" }),
     buildSkills()
   ]);
-  return [AGENT_PROMPT, MEMORY_PROMPT(memory), SKILL_PROMPT(skills)].join("\n\n");
+  const basePrompt = mode === "sub_agent" ? SUB_AGENT_PROMPT : MAIN_AGENT_PROMPT;
+  return [basePrompt, MEMORY_PROMPT(memory), SKILL_PROMPT(skills)].join("\n\n");
 }
 
 async function buildSkills(): Promise<string> {

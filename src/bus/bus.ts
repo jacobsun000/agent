@@ -13,6 +13,11 @@ export type InboundMessage = {
   channel: ChannelName;
   chatId: string;
   text: string;
+  source?: {
+    type: "sub_agent";
+    label: string;
+    task: string;
+  };
 };
 
 
@@ -68,6 +73,36 @@ export class Bus {
     await Promise.all(this.channels.map(async (channel) => channel.stop()));
   }
 
+  async dispatchSubAgentResult(message: {
+    channel: ChannelName;
+    chatId: string;
+    contextId?: string;
+    label: string;
+    task: string;
+    response: string;
+  }) {
+    const inbound: InboundMessage = {
+      channel: message.channel,
+      chatId: message.chatId,
+      text: [
+        `Sub-agent "${message.label}" completed its delegated task.`,
+        "",
+        `Delegated task:`,
+        message.task,
+        "",
+        "Sub-agent response:",
+        message.response
+      ].join("\n"),
+      source: {
+        type: "sub_agent",
+        label: message.label,
+        task: message.task
+      }
+    };
+
+    await this.dispatch(inbound);
+  }
+
   private async processMessage(sessionKey: string, message: InboundMessage) {
     logger.info(`Inbound Message ${this.formatMessage(sessionKey, message.text)}`);
     const channel = this.channels.find((c) => c.name === message.channel)!;
@@ -75,7 +110,7 @@ export class Bus {
     let replyStream: Awaited<ReturnType<Channel["createReplyStream"]>> | undefined;
 
     try {
-      replyStream = await channel.createReplyStream(message.chatId);
+      replyStream = await this.createReplyStream(channel, message);
 
       if (!isSessionPaired(sessionKey)) {
         const pairing = ensurePairingCode(sessionKey);
@@ -83,12 +118,16 @@ export class Bus {
           ? `This session is not paired yet.\n\nPairing code: ${pairing.code}\nApprove it locally with: ./agent pair ${pairing.code}`
           : `This session is waiting for approval.\n\nPairing code: ${pairing.code}\nApprove it locally with: ./agent pair ${pairing.code}`;
 
-        await replyStream.write(pairingMessage);
-        await replyStream.finish();
+        if (replyStream) {
+          await replyStream.write(pairingMessage);
+          await replyStream.finish();
+        }
         return;
       }
 
       const response = await this.agent.runTurn({
+        channel: message.channel,
+        chatId: message.chatId,
         contextId: sessionKey,
         text: message.text,
         onTextDelta: async (delta) => {
@@ -106,6 +145,21 @@ export class Bus {
       if (replyStream) {
         await replyStream.fail("Sorry, something went wrong while generating a reply.");
       }
+    }
+  }
+
+  private async createReplyStream(channel: Channel, message: InboundMessage) {
+    try {
+      return await channel.createReplyStream(message.chatId);
+    } catch (error) {
+      if (message.source?.type !== "sub_agent") {
+        throw error;
+      }
+
+      logger.warn(
+        `Sub-agent follow-up for ${message.channel}:${message.chatId} has no live reply stream; processing internally only.`
+      );
+      return undefined;
     }
   }
 
