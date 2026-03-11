@@ -1,5 +1,3 @@
-import { createOpenAI } from "@ai-sdk/openai";
-
 import { Bus } from "@/bus/bus";
 import { HttpChannel } from "@/channels/http";
 import { TelegramChannel } from "@/channels/telegram";
@@ -9,6 +7,7 @@ import { HeartbeatService } from "@/services/heartbeat";
 import { createSubAgentDispatcher } from "@/services/sub-agent-dispatcher";
 import { createLogger } from "@/utils/logger";
 import { getProviderConfig, loadConfig } from "@/utils/config";
+import { createLanguageModel } from "@/utils/model";
 
 const logger = createLogger("gateway");
 
@@ -20,8 +19,7 @@ type GatewayHandle = {
 export async function startGateway(): Promise<GatewayHandle> {
   const config = loadConfig();
   const provider = getProviderConfig(config);
-  const openai = createOpenAI({ apiKey: provider.apiKey });
-  const model = openai(config.agent.model);
+  const model = createLanguageModel(config, config.agent.model);
   let bus!: Bus;
   let cron!: CronService;
   let spawnSubAgent!: ReturnType<typeof createSubAgentDispatcher>;

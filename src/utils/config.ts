@@ -4,6 +4,7 @@ import { z } from "zod";
 import path from "node:path";
 
 import { CONFIG_PATH } from "@/utils/utils";
+import { parseModel } from "@/utils/model";
 
 const CONFIG_FILE_PATH = path.join(CONFIG_PATH, "config.jsonc");
 
@@ -123,17 +124,7 @@ export type Config = z.infer<typeof configSchema>;
 export type ProviderConfig = Config["providers"][number];
 
 export function getProviderNameFromModel(model: string): string {
-  const [providerName] = model.split("/", 1);
-
-  if (!providerName || providerName.trim() === "") {
-    throw new Error("Model must start with '<provider>/'.");
-  }
-
-  if (!model.includes("/")) {
-    throw new Error("Model must include '/' so the provider can be derived.");
-  }
-
-  return providerName.trim();
+  return parseModel(model).provider;
 }
 
 export function getProviderConfig(config: Config, model = config.agent.model): ProviderConfig {

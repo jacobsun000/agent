@@ -1,11 +1,11 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { createOpenAI } from "@ai-sdk/openai";
 
 import { type Bus } from "@/bus/bus";
 import { Agent, type SubAgentRequest } from "@/core/agent";
-import { type Config, getProviderConfig } from "@/utils/config";
+import { type Config } from "@/utils/config";
 import { createLogger } from "@/utils/logger";
+import { createLanguageModel } from "@/utils/model";
 import { parseSessionTarget } from "@/utils/session-target";
 import { CONFIG_PATH, pathExists } from "@/utils/utils";
 
@@ -31,10 +31,7 @@ export class HeartbeatService {
     this.bus = config.bus;
     this.reportSession = parseSessionTarget(config.config.heartbeat.reportSession, "heartbeat.reportSession");
     this.intervalMs = Number(config.config.heartbeat.interval) * 1000;
-
-    const provider = getProviderConfig(config.config, config.config.heartbeat.model);
-    const openai = createOpenAI({ apiKey: provider.apiKey });
-    const model = openai(config.config.heartbeat.model);
+    const model = createLanguageModel(config.config, config.config.heartbeat.model);
 
     this.heartbeatAgent = new Agent({
       model,
