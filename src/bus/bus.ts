@@ -230,9 +230,10 @@ export class Bus {
         await replyStream.finish();
       }
     } catch (error) {
-      logger.error(error instanceof Error ? error.message : error);
+      const detail = this.getErrorDetail(error);
+      logger.error(detail);
       if (replyStream) {
-        await replyStream.fail("Sorry, something went wrong while generating a reply.");
+        await replyStream.fail(this.formatFailureMessage(detail));
       }
     }
   }
@@ -275,6 +276,27 @@ export class Bus {
       "",
       message.text
     ].join("\n");
+  }
+
+  private getErrorDetail(error: unknown): string {
+    if (error instanceof Error && error.message.trim() !== "") {
+      return error.message;
+    }
+
+    if (typeof error === "string" && error.trim() !== "") {
+      return error;
+    }
+
+    return "Unknown error";
+  }
+
+  private formatFailureMessage(detail: string): string {
+    const normalized = detail.toLowerCase();
+    if (normalized.includes("timed out") || normalized.includes("timeout")) {
+      return `Tool execution timed out: ${detail}`;
+    }
+
+    return `Agent failed: ${detail}`;
   }
 
   private async withSessionLock<T>(sessionKey: string, work: () => Promise<T>): Promise<T> {

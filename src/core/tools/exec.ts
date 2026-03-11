@@ -13,6 +13,7 @@ type ExecResult = {
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  error?: string;
 };
 
 export function createExecTool(mode: ExecToolMode) {
@@ -60,11 +61,16 @@ function executeBash(command: string, timeoutMs: number): Promise<ExecResult> {
 
     child.on("close", (exitCode) => {
       clearTimeout(timeout);
+      const timeoutError = timedOut ? `Command timed out after ${timeoutMs}ms.` : undefined;
+      const normalizedStderr = timedOut
+        ? `${truncate(stderr)}${stderr.trim() === "" ? "" : "\n"}${timeoutError}`
+        : truncate(stderr);
       resolve({
         stdout: truncate(stdout) || "[no output]",
-        stderr: truncate(stderr),
+        stderr: normalizedStderr,
         exitCode,
-        timedOut
+        timedOut,
+        ...(timeoutError ? { error: timeoutError } : {})
       });
     });
   });

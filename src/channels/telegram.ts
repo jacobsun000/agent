@@ -13,6 +13,7 @@ import { createLogger } from "@/utils/logger";
 
 
 const TELEGRAM_FLUSH_INTERVAL_MS = 1000;
+const TELEGRAM_MAX_MESSAGE_CHARS = 4096;
 
 type TelegramChannelConfig = {
   token: string;
@@ -237,27 +238,8 @@ export class TelegramChannel implements Channel {
       if (content === lastSentText) {
         return;
       }
-
-      const markdown = telegramifyMarkdown(content, "escape");
-
-      try {
-        await this.bot.telegram.editMessageText(chatId, initialMessage.message_id, undefined, markdown, {
-          parse_mode: "MarkdownV2"
-        });
-        lastSentText = content;
-      } catch (error) {
-        if (isIgnorableTelegramEditError(error)) {
-          return;
-        }
-
-        if (isTelegramMarkdownParseError(error)) {
-          await this.bot.telegram.editMessageText(chatId, initialMessage.message_id, undefined, content);
-          lastSentText = content;
-          return;
-        }
-
-        throw error;
-      }
+      await this.editInitialMessage(chatId, initialMessage.message_id, content);
+      lastSentText = content;
     };
 
     const flushImmediately = async () => {
@@ -270,6 +252,8 @@ export class TelegramChannel implements Channel {
       await editInFlight;
     };
 
+    const channel = this;
+
     return {
       async write(delta) {
         content += delta;
@@ -281,7 +265,16 @@ export class TelegramChannel implements Channel {
         }
 
         try {
-          await flushImmediately();
+          try {
+            await flushImmediately();
+          } catch (error) {
+            logger.error(error instanceof Error ? error.message : error);
+          }
+          await channel.ensureCompleteFinalDelivery({
+            chatId,
+            messageId: initialMessage.message_id,
+            content
+          });
         } finally {
           stopTyping();
         }
@@ -292,7 +285,16 @@ export class TelegramChannel implements Channel {
         }
 
         try {
-          await flushImmediately();
+          try {
+            await flushImmediately();
+          } catch (error) {
+            logger.error(error instanceof Error ? error.message : error);
+          }
+          await channel.ensureCompleteFinalDelivery({
+            chatId,
+            messageId: initialMessage.message_id,
+            content
+          });
         } catch (error) {
           logger.error(error instanceof Error ? error.message : error);
         } finally {
@@ -319,6 +321,83 @@ export class TelegramChannel implements Channel {
     const buffer = await response.arrayBuffer();
     return new Uint8Array(buffer);
   }
+
+  private async ensureCompleteFinalDelivery(input: {
+    chatId: string;
+    messageId: number;
+    content: string;
+  }) {
+    const chunks = splitIntoTelegramChunks(input.content);
+    if (chunks.length === 0) {
+      return;
+    }
+
+    await this.editInitialMessage(input.chatId, input.messageId, chunks[0]);
+
+    for (const chunk of chunks.slice(1)) {
+      await this.sendMessageWithMarkdownFallback(input.chatId, chunk);
+    }
+  }
+
+  private async editInitialMessage(chatId: string, messageId: number, text: string) {
+    const markdown = telegramifyMarkdown(text, "escape");
+
+    try {
+      await this.bot.telegram.editMessageText(chatId, messageId, undefined, markdown, {
+        parse_mode: "MarkdownV2"
+      });
+    } catch (error) {
+      if (isIgnorableTelegramEditError(error)) {
+        return;
+      }
+
+      if (isTelegramMarkdownParseError(error)) {
+        await this.bot.telegram.editMessageText(chatId, messageId, undefined, text);
+        return;
+      }
+
+      throw error;
+    }
+  }
+
+  private async sendMessageWithMarkdownFallback(chatId: string, text: string) {
+    const markdown = telegramifyMarkdown(text, "escape");
+
+    try {
+      await this.bot.telegram.sendMessage(chatId, markdown, {
+        parse_mode: "MarkdownV2"
+      });
+    } catch (error) {
+      if (!isTelegramMarkdownParseError(error)) {
+        throw error;
+      }
+
+      await this.bot.telegram.sendMessage(chatId, text);
+    }
+  }
+}
+
+function splitIntoTelegramChunks(value: string): string[] {
+  if (value.length <= TELEGRAM_MAX_MESSAGE_CHARS) {
+    return [value];
+  }
+
+  const chunks: string[] = [];
+  let remaining = value;
+
+  while (remaining.length > TELEGRAM_MAX_MESSAGE_CHARS) {
+    const window = remaining.slice(0, TELEGRAM_MAX_MESSAGE_CHARS);
+    const splitAt = Math.max(window.lastIndexOf("\n"), window.lastIndexOf(" "));
+    const chunkLength = splitAt > 0 ? splitAt : TELEGRAM_MAX_MESSAGE_CHARS;
+    chunks.push(remaining.slice(0, chunkLength));
+    remaining = remaining.slice(chunkLength).trimStart();
+  }
+
+  if (remaining.length > 0) {
+    chunks.push(remaining);
+  }
+
+  return chunks;
 }
 
 function isIgnorableTelegramEditError(error: unknown): boolean {
