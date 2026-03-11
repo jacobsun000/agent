@@ -3,6 +3,7 @@ import { streamText, stepCountIs, type LanguageModel, type ModelMessage } from "
 import { type ChannelName } from "@/channels/types";
 import { type Context, FileSystemContext } from "@/core/context";
 import { createCronTool, type CronToolInput } from "@/core/tools/cron";
+import { type InboundImage } from "@/bus/bus";
 import { execTool } from "@/core/tools/exec";
 import { createSubAgentTool } from "@/core/tools/sub-agent";
 import { createLogger } from "@/utils/logger";
@@ -36,6 +37,7 @@ type RunTurnInput = {
   chatId?: string;
   contextId?: string;
   text: string;
+  images?: InboundImage[];
   onTextDelta?: (delta: string) => void | Promise<void>;
 };
 
@@ -63,7 +65,14 @@ export class Agent {
 
     await this.context.add(input.contextId, [{
       role: "user",
-      content: [{ type: "text", text: input.text }]
+      content: [
+        { type: "text", text: input.text },
+        ...(input.images ?? []).map((image) => ({
+          type: "image" as const,
+          mediaType: image.mimeType,
+          image: image.data
+        }))
+      ]
     }]);
 
     const result = streamText({

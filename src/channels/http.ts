@@ -14,6 +14,11 @@ type HttpChannelConfig = {
 type HttpRequestBody = {
   chatId?: string;
   text: string;
+  images?: Array<{
+    mimeType: string;
+    dataBase64: string;
+    caption?: string;
+  }>;
 };
 
 const logger = createLogger("channel:http");
@@ -123,7 +128,12 @@ export class HttpChannel implements Channel {
       await this.onMessage({
         channel: this.name,
         chatId,
-        text: payload.text
+        text: payload.text,
+        images: payload.images?.map((image) => ({
+          mimeType: image.mimeType,
+          data: Uint8Array.from(Buffer.from(image.dataBase64, "base64")),
+          caption: image.caption
+        }))
       });
     } finally {
       this.detachReplyStream(chatId);
@@ -157,6 +167,7 @@ export class HttpChannel implements Channel {
 
     const chatId = (value as { chatId?: unknown }).chatId;
     const text = (value as { text?: unknown }).text;
+    const images = (value as { images?: unknown }).images;
 
     if (chatId !== undefined && (typeof chatId !== "string" || chatId.trim() === "")) {
       throw new Error("`chatId` must be a non-empty string when provided.");
@@ -166,9 +177,47 @@ export class HttpChannel implements Channel {
       throw new Error("`text` must be a non-empty string.");
     }
 
+    if (images !== undefined) {
+      if (!Array.isArray(images)) {
+        throw new Error("`images` must be an array when provided.");
+      }
+
+      for (const [index, image] of images.entries()) {
+        if (!image || typeof image !== "object") {
+          throw new Error(`images[${index}] must be an object.`);
+        }
+
+        const mimeType = (image as { mimeType?: unknown }).mimeType;
+        const dataBase64 = (image as { dataBase64?: unknown }).dataBase64;
+        const caption = (image as { caption?: unknown }).caption;
+
+        if (typeof mimeType !== "string" || mimeType.trim() === "") {
+          throw new Error(`images[${index}].mimeType must be a non-empty string.`);
+        }
+
+        if (typeof dataBase64 !== "string" || dataBase64.trim() === "") {
+          throw new Error(`images[${index}].dataBase64 must be a non-empty string.`);
+        }
+
+        if (caption !== undefined && typeof caption !== "string") {
+          throw new Error(`images[${index}].caption must be a string when provided.`);
+        }
+      }
+    }
+
     return {
       chatId: typeof chatId === "string" ? chatId.trim() : undefined,
-      text
+      text,
+      images: Array.isArray(images)
+        ? images.map((image) => ({
+            mimeType: (image as { mimeType: string }).mimeType.trim(),
+            dataBase64: (image as { dataBase64: string }).dataBase64.trim(),
+            caption:
+              typeof (image as { caption?: unknown }).caption === "string"
+                ? (image as { caption: string }).caption
+                : undefined
+          }))
+        : undefined
     };
   }
 

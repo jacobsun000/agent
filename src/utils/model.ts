@@ -53,3 +53,18 @@ export function createLanguageModel(config: Config, model: string): LanguageMode
       throw new Error(`Unsupported provider '${parsedModel.provider}'.`);
   }
 }
+
+export function createProviderClient(config: Config, providerName: string) {
+  const provider = config.providers.find((entry) => entry.name === providerName);
+
+  if (!provider) {
+    throw new Error(`No provider named '${providerName}' configured.`);
+  }
+
+  switch (providerName) {
+    case "openai":
+      return createOpenAI({ apiKey: provider.apiKey });
+    default:
+      throw new Error(`Unsupported provider '${providerName}'.`);
+  }
+}

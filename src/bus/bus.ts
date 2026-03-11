@@ -9,10 +9,25 @@ export type OutboundMessageStream = {
   fail(message: string): Promise<void>;
 };
 
+export type InboundImage = {
+  mimeType: string;
+  data: Uint8Array;
+  caption?: string;
+};
+
+export type InboundVoice = {
+  mimeType: string;
+  data: Uint8Array;
+  durationSeconds?: number;
+  transcript: string;
+};
+
 export type InboundMessage = {
   channel: ChannelName;
   chatId: string;
   text: string;
+  images?: InboundImage[];
+  voice?: InboundVoice;
   source?: {
     type: "sub_agent";
     label: string;
@@ -134,6 +149,7 @@ export class Bus {
         chatId: message.chatId,
         contextId: sessionKey,
         text: message.text,
+        images: message.images,
         onTextDelta: async (delta) => {
           if (replyStream) {
             await replyStream.write(delta);

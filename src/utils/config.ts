@@ -21,7 +21,8 @@ const sessionTargetSchema = z.string().trim().regex(/^(http|telegram):.+$/, {
 
 const configSchema = z.object({
   agent: z.object({
-    model: nonEmptyString
+    model: nonEmptyString,
+    transcriptionModel: nonEmptyString.default("openai/gpt-4o-mini-transcribe")
   }),
   heartbeat: z
     .object({
@@ -98,6 +99,23 @@ const configSchema = z.object({
     context.addIssue({
       code: "custom",
       path: ["agent", "model"],
+      message: error instanceof Error ? error.message : "Invalid model format."
+    });
+  }
+
+  try {
+    const transcriptionProviderName = getProviderNameFromModel(value.agent.transcriptionModel);
+    if (!seenProviders.has(transcriptionProviderName)) {
+      context.addIssue({
+        code: "custom",
+        path: ["agent", "transcriptionModel"],
+        message: `No provider named '${transcriptionProviderName}' configured in providers.`
+      });
+    }
+  } catch (error) {
+    context.addIssue({
+      code: "custom",
+      path: ["agent", "transcriptionModel"],
       message: error instanceof Error ? error.message : "Invalid model format."
     });
   }

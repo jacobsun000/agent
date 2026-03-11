@@ -5,6 +5,7 @@ import { Agent } from "@/core/agent";
 import { CronService } from "@/services/cron";
 import { HeartbeatService } from "@/services/heartbeat";
 import { createSubAgentDispatcher } from "@/services/sub-agent-dispatcher";
+import { createTranscriptionService } from "@/services/transcribe";
 import { createLogger } from "@/utils/logger";
 import { getProviderConfig, loadConfig } from "@/utils/config";
 import { createLanguageModel } from "@/utils/model";
@@ -20,6 +21,7 @@ export async function startGateway(): Promise<GatewayHandle> {
   const config = loadConfig();
   const provider = getProviderConfig(config);
   const model = createLanguageModel(config, config.agent.model);
+  const transcriptionService = createTranscriptionService(config);
   let bus!: Bus;
   let cron!: CronService;
   let spawnSubAgent!: ReturnType<typeof createSubAgentDispatcher>;
@@ -55,6 +57,7 @@ export async function startGateway(): Promise<GatewayHandle> {
     bus.registerChannel(
       new TelegramChannel({
         ...config.channels.telegram,
+        transcriptionService,
         onMessage: async (message) => {
           await bus.dispatch(message);
         }

@@ -3,6 +3,7 @@ import { message } from "telegraf/filters";
 
 import { type Channel } from "@/channels/types";
 import { type InboundMessage, type OutboundMessageStream } from "@/bus/bus";
+import { type TranscriptionService } from "@/services/transcribe";
 import { createLogger } from "@/utils/logger";
 
 
@@ -11,24 +12,94 @@ const TELEGRAM_FLUSH_INTERVAL_MS = 1000;
 type TelegramChannelConfig = {
   token: string;
   onMessage: (message: InboundMessage) => Promise<void>;
+  transcriptionService: TranscriptionService;
 };
 
-const logger = createLogger("channel:telegram")
+const logger = createLogger("channel:telegram");
 
 export class TelegramChannel implements Channel {
   readonly name = "telegram" as const;
   private readonly bot: Telegraf;
   private readonly onMessage: TelegramChannelConfig["onMessage"];
+  private readonly transcriptionService: TranscriptionService;
 
   constructor(config: TelegramChannelConfig) {
     this.bot = new Telegraf(config.token);
     this.onMessage = config.onMessage;
+    this.transcriptionService = config.transcriptionService;
 
     this.bot.on(message("text"), async (ctx) => {
       await this.onMessage({
         channel: this.name,
         chatId: String(ctx.chat.id),
         text: ctx.message.text,
+      });
+    });
+
+    this.bot.on(message("voice"), async (ctx) => {
+      const voiceUrl = await this.bot.telegram.getFileLink(ctx.message.voice.file_id);
+      const voiceData = await this.downloadFile(voiceUrl.toString());
+      const mimeType = ctx.message.voice.mime_type ?? "audio/ogg";
+      const transcript = await this.transcriptionService.transcribe({
+        audio: voiceData,
+        mimeType,
+        filename: `telegram-voice-${ctx.message.voice.file_unique_id}.ogg`
+      });
+
+      await this.onMessage({
+        channel: this.name,
+        chatId: String(ctx.chat.id),
+        text: transcript,
+        voice: {
+          mimeType,
+          data: voiceData,
+          durationSeconds: ctx.message.voice.duration,
+          transcript
+        }
+      });
+    });
+
+    this.bot.on(message("photo"), async (ctx) => {
+      const largestPhoto = ctx.message.photo.at(-1);
+      if (!largestPhoto) {
+        return;
+      }
+
+      const photoUrl = await this.bot.telegram.getFileLink(largestPhoto.file_id);
+      const imageData = await this.downloadFile(photoUrl.toString());
+      const caption = ctx.message.caption?.trim();
+
+      await this.onMessage({
+        channel: this.name,
+        chatId: String(ctx.chat.id),
+        text: caption && caption.length > 0 ? caption : "Please analyze the attached image.",
+        images: [{
+          mimeType: "image/jpeg",
+          data: imageData,
+          caption
+        }]
+      });
+    });
+
+    this.bot.on(message("document"), async (ctx) => {
+      const mimeType = ctx.message.document.mime_type;
+      if (!mimeType?.startsWith("image/")) {
+        return;
+      }
+
+      const documentUrl = await this.bot.telegram.getFileLink(ctx.message.document.file_id);
+      const imageData = await this.downloadFile(documentUrl.toString());
+      const caption = ctx.message.caption?.trim();
+
+      await this.onMessage({
+        channel: this.name,
+        chatId: String(ctx.chat.id),
+        text: caption && caption.length > 0 ? caption : "Please analyze the attached image.",
+        images: [{
+          mimeType,
+          data: imageData,
+          caption
+        }]
       });
     });
   }
@@ -146,6 +217,16 @@ export class TelegramChannel implements Channel {
         }
       }
     };
+  }
+
+  private async downloadFile(url: string): Promise<Uint8Array> {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to download Telegram file (${response.status}).`);
+    }
+
+    const buffer = await response.arrayBuffer();
+    return new Uint8Array(buffer);
   }
 }
 
