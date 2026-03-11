@@ -52,7 +52,9 @@ export class TelegramChannel implements Channel {
           const result = await this.onStatsSession({
             chatId: String(ctx.chat.id)
           });
-          await ctx.reply(result.message);
+          await ctx.reply(result.message, {
+            parse_mode: "MarkdownV2"
+          });
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
           await ctx.reply(`Stats failed: ${detail}`);
@@ -236,10 +238,18 @@ export class TelegramChannel implements Channel {
       }
 
       try {
-        await this.bot.telegram.editMessageText(chatId, initialMessage.message_id, undefined, content);
+        await this.bot.telegram.editMessageText(chatId, initialMessage.message_id, undefined, content, {
+          parse_mode: "Markdown"
+        });
         lastSentText = content;
       } catch (error) {
         if (isIgnorableTelegramEditError(error)) {
+          return;
+        }
+
+        if (isTelegramMarkdownParseError(error)) {
+          await this.bot.telegram.editMessageText(chatId, initialMessage.message_id, undefined, content);
+          lastSentText = content;
           return;
         }
 
@@ -314,6 +324,14 @@ function isIgnorableTelegramEditError(error: unknown): boolean {
   }
 
   return error.message.includes("message is not modified");
+}
+
+function isTelegramMarkdownParseError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return error.message.includes("can't parse entities");
 }
 
 function isCompactCommand(text: string): boolean {
