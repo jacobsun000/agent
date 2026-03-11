@@ -1,6 +1,7 @@
 import { Agent } from "@/core/agent";
 import { type ContextStatistics } from "@/core/context";
 import { type ChannelName, type Channel, type OutboundAttachment } from "@/channels/types";
+import { initializeDeferredTelegramReportSessions } from "@/utils/default-session";
 import { ensurePairingCode, isSessionPaired } from "@/utils/pairing";
 import { createLogger } from "@/utils/logger";
 
@@ -211,6 +212,13 @@ export class Bus {
           await replyStream.finish();
         }
         return;
+      }
+
+      if (message.channel === "telegram" && !message.source) {
+        const initialized = await initializeDeferredTelegramReportSessions(sessionKey);
+        if (initialized) {
+          logger.info(`Initialized deferred default Telegram report session to ${sessionKey}.`);
+        }
       }
 
       const response = await this.agent.runTurn({

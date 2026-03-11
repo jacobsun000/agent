@@ -5,6 +5,12 @@ export type SessionTarget = {
   chatId: string;
 };
 
+export const DEFERRED_TELEGRAM_REPORT_SESSION = "telegram:__AGENT_DEFAULT_SESSION_UNINITIALIZED__";
+
+export function isDeferredSessionTarget(value: string): boolean {
+  return value.trim() === DEFERRED_TELEGRAM_REPORT_SESSION;
+}
+
 export function parseSessionTarget(value: string, configKey: string): SessionTarget {
   const separatorIndex = value.indexOf(":");
   if (separatorIndex === -1) {
@@ -21,4 +27,12 @@ export function parseSessionTarget(value: string, configKey: string): SessionTar
     channel,
     chatId
   };
+}
+
+export function resolveSessionTarget(value: string, configKey: string): SessionTarget | undefined {
+  if (isDeferredSessionTarget(value)) {
+    return undefined;
+  }
+
+  return parseSessionTarget(value, configKey);
 }

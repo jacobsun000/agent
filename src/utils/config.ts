@@ -5,8 +5,9 @@ import path from "node:path";
 
 import { CONFIG_PATH } from "@/utils/utils";
 import { parseModel } from "@/utils/model";
+import { DEFERRED_TELEGRAM_REPORT_SESSION, isDeferredSessionTarget } from "@/utils/session-target";
 
-const CONFIG_FILE_PATH = path.join(CONFIG_PATH, "config.jsonc");
+export const CONFIG_FILE_PATH = path.join(CONFIG_PATH, "config.jsonc");
 
 const nonEmptyString = z.string().trim().min(1);
 const portSchema = z.int().min(1).max(65535);
@@ -15,9 +16,12 @@ const secondsStringSchema = z
   .trim()
   .regex(/^\d+$/, "Must be an integer number of seconds.")
   .refine((value) => Number(value) > 0, "Must be greater than 0.");
-const sessionTargetSchema = z.string().trim().regex(/^(http|telegram):.+$/, {
-  message: "Must be in the format '<channel>:<chatId>'."
-});
+const sessionTargetSchema = z.string().trim().refine(
+  (value) => isDeferredSessionTarget(value) || /^(http|telegram):.+$/.test(value),
+  {
+    message: "Must be in the format '<channel>:<chatId>' or the deferred default-session sentinel."
+  }
+);
 
 const configSchema = z.object({
   agent: z.object({
@@ -34,14 +38,14 @@ const configSchema = z.object({
     .default({
       model: "openai/gpt-5-mini",
       interval: "1800",
-      reportSession: "telegram:xxx"
+      reportSession: DEFERRED_TELEGRAM_REPORT_SESSION
     }),
   cron: z
     .object({
       reportSession: sessionTargetSchema
     })
     .default({
-      reportSession: "telegram:xxx"
+      reportSession: DEFERRED_TELEGRAM_REPORT_SESSION
     }),
   providers: z.array(
     z.object({

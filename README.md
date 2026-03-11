@@ -69,8 +69,8 @@ You will typically need to fill in:
 
 - `providers[].apiKey`
 - `channels.telegram.token` if Telegram is enabled
-- `heartbeat.reportSession`
-- `cron.reportSession`
+- `heartbeat.reportSession` if you want something other than the first approved Telegram chat
+- `cron.reportSession` if you want something other than the first approved Telegram chat
 
 The default template also includes:
 

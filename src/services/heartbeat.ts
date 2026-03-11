@@ -4,9 +4,9 @@ import path from "node:path";
 import { type Bus } from "@/bus/bus";
 import { Agent, type SubAgentRequest } from "@/core/agent";
 import { type Config } from "@/utils/config";
+import { getConfiguredReportSession, loadConfiguredReportSession } from "@/utils/default-session";
 import { createLogger } from "@/utils/logger";
 import { createLanguageModel } from "@/utils/model";
-import { parseSessionTarget } from "@/utils/session-target";
 import { CONFIG_PATH, pathExists } from "@/utils/utils";
 
 const logger = createLogger("heartbeat");
@@ -21,7 +21,7 @@ type HeartbeatServiceConfig = {
 export class HeartbeatService {
   private readonly bus: Bus;
   private readonly heartbeatAgent: Agent;
-  private readonly reportSession;
+  private reportSession;
   private readonly intervalMs: number;
   private timer: NodeJS.Timeout | undefined;
   private runPromise: Promise<void> | undefined;
@@ -29,7 +29,7 @@ export class HeartbeatService {
 
   constructor(config: HeartbeatServiceConfig) {
     this.bus = config.bus;
-    this.reportSession = parseSessionTarget(config.config.heartbeat.reportSession, "heartbeat.reportSession");
+    this.reportSession = getConfiguredReportSession(config.config, "heartbeat");
     this.intervalMs = Number(config.config.heartbeat.interval) * 1000;
     const model = createLanguageModel(config.config, config.config.heartbeat.model);
 
@@ -41,7 +41,11 @@ export class HeartbeatService {
   }
 
   start() {
-    logger.info(`Heartbeat enabled for ${this.reportSession.channel}:${this.reportSession.chatId} every ${this.intervalMs / 1000}s.`);
+    if (this.reportSession) {
+      logger.info(`Heartbeat enabled for ${this.reportSession.channel}:${this.reportSession.chatId} every ${this.intervalMs / 1000}s.`);
+    } else {
+      logger.info(`Heartbeat is waiting for an approved Telegram session before sending reports every ${this.intervalMs / 1000}s.`);
+    }
     this.scheduleNext(0);
   }
 
@@ -96,10 +100,16 @@ export class HeartbeatService {
         return;
       }
 
+      const reportSession = this.getReportSession();
+      if (!reportSession) {
+        logger.debug("Skipping heartbeat; default report session is not initialized yet.");
+        return;
+      }
+
       const contextId = `heartbeat:${Date.now()}`;
       const response = await this.heartbeatAgent.runTurn({
-        channel: this.reportSession.channel,
-        chatId: this.reportSession.chatId,
+        channel: reportSession.channel,
+        chatId: reportSession.chatId,
         contextId,
         text: [
           "Review the following HEARTBEAT.md content.",
@@ -114,6 +124,25 @@ export class HeartbeatService {
       logger.info(`Heartbeat evaluation finished with response: ${response.trim() || "[empty]"}.`);
     } catch (error) {
       logger.error(error instanceof Error ? error.message : error);
+    }
+  }
+
+  private getReportSession() {
+    if (this.reportSession) {
+      return this.reportSession;
+    }
+
+    try {
+      const resolved = loadConfiguredReportSession("heartbeat");
+      if (resolved) {
+        this.reportSession = resolved;
+        logger.info(`Heartbeat report session initialized to ${resolved.channel}:${resolved.chatId}.`);
+      }
+
+      return resolved;
+    } catch (error) {
+      logger.error(error instanceof Error ? error.message : error);
+      return undefined;
     }
   }
 }

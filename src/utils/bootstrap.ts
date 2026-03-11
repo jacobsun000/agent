@@ -3,6 +3,7 @@ import { createInterface } from "node:readline";
 import path from "node:path";
 import { applyEdits, modify, parse } from "jsonc-parser";
 
+import { DEFERRED_TELEGRAM_REPORT_SESSION } from "@/utils/session-target";
 import { CONFIG_PATH, pathExists } from "@/utils/utils";
 
 const TEMPLATE_ROOT = path.resolve(process.cwd(), "templates");
@@ -115,6 +116,8 @@ export async function bootstrapConfigInteractive(): Promise<void> {
     prompt.writeLine(`Wrote ${CONFIG_FILE_PATH}.`);
     if (!enableTelegram) {
       prompt.writeLine("Telegram was left disabled. You can re-run `agent bootstrap` later to add it.");
+    } else {
+      prompt.writeLine("Heartbeat and cron will wait for the first approved Telegram chat before choosing a default report session.");
     }
     prompt.writeLine("Next step: start the gateway with `agent gateway run`.");
   } finally {
@@ -141,7 +144,17 @@ function updateConfigText(
     }),
     ...modify(sourceText, ["channels", "telegram", "token"], values.telegramToken, {
       formattingOptions: JSONC_FORMATTING_OPTIONS
-    })
+    }),
+    ...(values.telegramEnabled
+      ? modify(sourceText, ["heartbeat", "reportSession"], DEFERRED_TELEGRAM_REPORT_SESSION, {
+          formattingOptions: JSONC_FORMATTING_OPTIONS
+        })
+      : []),
+    ...(values.telegramEnabled
+      ? modify(sourceText, ["cron", "reportSession"], DEFERRED_TELEGRAM_REPORT_SESSION, {
+          formattingOptions: JSONC_FORMATTING_OPTIONS
+        })
+      : [])
   ];
 
   return applyEdits(sourceText, edits);

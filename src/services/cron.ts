@@ -6,8 +6,9 @@ import { z } from "zod";
 import { type Bus } from "@/bus/bus";
 import { type CronToolInput } from "@/core/tools/cron";
 import { type Config } from "@/utils/config";
+import { getConfiguredReportSession, loadConfiguredReportSession } from "@/utils/default-session";
 import { createLogger } from "@/utils/logger";
-import { type SessionTarget, parseSessionTarget } from "@/utils/session-target";
+import { type SessionTarget } from "@/utils/session-target";
 import { CONFIG_PATH, pathExists } from "@/utils/utils";
 
 const logger = createLogger("cron");
@@ -72,7 +73,7 @@ type AddCronToolInput = {
 
 export class CronService {
   private readonly bus: Bus;
-  private readonly reportSession: SessionTarget;
+  private reportSession: SessionTarget | undefined;
   private timer: NodeJS.Timeout | undefined;
   private stopped = false;
   private runPromise: Promise<void> | undefined;
@@ -80,11 +81,15 @@ export class CronService {
 
   constructor(config: CronServiceConfig) {
     this.bus = config.bus;
-    this.reportSession = parseSessionTarget(config.config.cron.reportSession, "cron.reportSession");
+    this.reportSession = getConfiguredReportSession(config.config, "cron");
   }
 
   start() {
-    logger.info(`Cron enabled for ${this.reportSession.channel}:${this.reportSession.chatId}; scanning every 60s.`);
+    if (this.reportSession) {
+      logger.info(`Cron enabled for ${this.reportSession.channel}:${this.reportSession.chatId}; scanning every 60s.`);
+    } else {
+      logger.info("Cron is waiting for an approved Telegram session before dispatching scheduled work.");
+    }
     this.scheduleNext(0);
   }
 
@@ -190,11 +195,17 @@ export class CronService {
       return dispatches;
     });
 
+    const reportSession = this.getReportSession();
+    if (!reportSession) {
+      logger.debug("Skipping cron dispatch; default report session is not initialized yet.");
+      return;
+    }
+
     for (const dispatch of dueDispatches) {
       logger.info(`Triggering cron job ${dispatch.jobId}.`);
       void this.bus.dispatch({
-        channel: this.reportSession.channel,
-        chatId: this.reportSession.chatId,
+        channel: reportSession.channel,
+        chatId: reportSession.chatId,
         text: dispatch.text,
         source: {
           type: "scheduled",
@@ -248,6 +259,25 @@ export class CronService {
   private async saveStore(store: z.infer<typeof cronStoreSchema>) {
     await mkdir(path.dirname(CRONS_FILE_PATH), { recursive: true });
     await writeFile(CRONS_FILE_PATH, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  }
+
+  private getReportSession() {
+    if (this.reportSession) {
+      return this.reportSession;
+    }
+
+    try {
+      const resolved = loadConfiguredReportSession("cron");
+      if (resolved) {
+        this.reportSession = resolved;
+        logger.info(`Cron report session initialized to ${resolved.channel}:${resolved.chatId}.`);
+      }
+
+      return resolved;
+    } catch (error) {
+      logger.error(error instanceof Error ? error.message : error);
+      return undefined;
+    }
   }
 }
 

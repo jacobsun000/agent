@@ -8,10 +8,11 @@
   "heartbeat": {
     "model": "openai/gpt-5-mini",
     "interval": "1800",
-    "reportSession": "telegram:xxx"
+    // When Telegram is enabled via bootstrap, this stays deferred until the first approved Telegram chat.
+    "reportSession": "telegram:__AGENT_DEFAULT_SESSION_UNINITIALIZED__"
   },
   "cron": {
-    "reportSession": "telegram:xxx"
+    "reportSession": "telegram:__AGENT_DEFAULT_SESSION_UNINITIALIZED__"
   },
   "providers": [
     {
