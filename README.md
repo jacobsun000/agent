@@ -4,7 +4,7 @@ A local multi-channel AI agent gateway that receives messages, keeps per-session
 
 ## What it does
 
-This repository runs an OpenAI-backed agent as a long-lived local service. It provides:
+This repository runs a provider-backed agent as a long-lived local service. It provides:
 
 - **HTTP channel** for local apps to send messages and receive streamed replies
 - **Telegram channel** for chatting with the agent through a bot
@@ -20,7 +20,7 @@ This is best described as a personal agent runtime / gateway rather than a gener
 - Node.js + TypeScript
 - tsx
 - yargs
-- OpenAI + Vercel AI SDK
+- OpenAI, OpenRouter + Vercel AI SDK
 - Telegraf
 - zod
 - jsonc-parser
@@ -77,6 +77,12 @@ The default template also includes:
 - HTTP listening on `127.0.0.1:8100`
 - agent model `openai/gpt-5.4`
 - transcription model `openai/gpt-4o-mini-transcribe`
+
+OpenRouter is also supported. Example:
+
+- `agent.model`: `openrouter/anthropic/claude-sonnet-4`
+- `heartbeat.model`: `openrouter/anthropic/claude-sonnet-4`
+- add provider entry: `{ "name": "openrouter", "apiKey": "sk-or-..." }`
 
 ### Run in development
 

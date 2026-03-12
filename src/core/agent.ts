@@ -186,6 +186,10 @@ export class Agent {
       return;
     }
 
+    if (!this.compaction) {
+      return;
+    }
+
     if (typeof this.memoryWindow !== "number" || this.memoryWindow <= 0) {
       return;
     }

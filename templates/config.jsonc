@@ -19,6 +19,11 @@
       "name": "openai",
       "apiKey": "sk-..."
     }
+    // Optional OpenRouter provider:
+    // {
+    //   "name": "openrouter",
+    //   "apiKey": "sk-or-..."
+    // }
   ],
   "channels": {
     "http": {

@@ -134,9 +134,14 @@ function updateConfigText(
   }
 ): string {
   const parsed = parse(sourceText) as Record<string, unknown>;
-  const providerIndex = findOpenAIProviderIndex(parsed);
+  const providerIndex = findProviderIndex(parsed, "openai");
+  const providersLength = Array.isArray(parsed.providers) ? parsed.providers.length : 0;
+  const nextProviderIndex = providerIndex >= 0 ? providerIndex : providersLength;
   const edits = [
-    ...modify(sourceText, ["providers", providerIndex, "apiKey"], values.openAIKey, {
+    ...modify(sourceText, ["providers", nextProviderIndex, "name"], "openai", {
+      formattingOptions: JSONC_FORMATTING_OPTIONS
+    }),
+    ...modify(sourceText, ["providers", nextProviderIndex, "apiKey"], values.openAIKey, {
       formattingOptions: JSONC_FORMATTING_OPTIONS
     }),
     ...modify(sourceText, ["channels", "telegram", "enabled"], values.telegramEnabled, {
@@ -160,25 +165,25 @@ function updateConfigText(
   return applyEdits(sourceText, edits);
 }
 
-function findOpenAIProviderIndex(value: Record<string, unknown> | null): number {
+function findProviderIndex(value: Record<string, unknown> | null, providerName: string): number {
   const providers = Array.isArray(value?.providers) ? value.providers : [];
   const index = providers.findIndex((provider) => {
     if (!provider || typeof provider !== "object") {
       return false;
     }
 
-    return (provider as { name?: unknown }).name === "openai";
+    return (provider as { name?: unknown }).name === providerName;
   });
 
-  return index >= 0 ? index : 0;
+  return index;
 }
 
 function hasConfiguredSecrets(value: Record<string, unknown> | null): boolean {
-  const openAIKey = getProviderApiKey(value, "openai");
+  const providerApiKey = getAnyProviderApiKey(value);
   const telegramEnabled = getTelegramEnabled(value, null);
   const telegramToken = getTelegramToken(value);
 
-  return openAIKey !== null || (telegramEnabled && telegramToken !== null);
+  return providerApiKey !== null || (telegramEnabled && telegramToken !== null);
 }
 
 function getProviderApiKey(value: Record<string, unknown> | null, providerName: string): string | null {
@@ -199,12 +204,38 @@ function getProviderApiKey(value: Record<string, unknown> | null, providerName: 
     }
 
     const apiKey = typedProvider.apiKey.trim();
-    if (apiKey !== "" && apiKey !== "sk-...") {
+    if (apiKey !== "" && !isPlaceholderApiKey(apiKey)) {
       return apiKey;
     }
   }
 
   return null;
+}
+
+function getAnyProviderApiKey(value: Record<string, unknown> | null): string | null {
+  const providers = Array.isArray(value?.providers) ? value.providers : [];
+
+  for (const provider of providers) {
+    if (!provider || typeof provider !== "object") {
+      continue;
+    }
+
+    const apiKey = (provider as { apiKey?: unknown }).apiKey;
+    if (typeof apiKey !== "string") {
+      continue;
+    }
+
+    const trimmed = apiKey.trim();
+    if (trimmed !== "" && !isPlaceholderApiKey(trimmed)) {
+      return trimmed;
+    }
+  }
+
+  return null;
+}
+
+function isPlaceholderApiKey(value: string): boolean {
+  return value === "sk-..." || value === "sk-or-...";
 }
 
 function getTelegramEnabled(

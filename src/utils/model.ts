@@ -1,4 +1,5 @@
 import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { type LanguageModel } from "ai";
 
 import { type Config } from "@/utils/config";
@@ -49,6 +50,10 @@ export function createLanguageModel(config: Config, model: string): LanguageMode
       const openai = createOpenAI({ apiKey: provider.apiKey });
       return openai(parsedModel.modelId);
     }
+    case "openrouter": {
+      const openrouter = createOpenRouter({ apiKey: provider.apiKey });
+      return openrouter(parsedModel.modelId);
+    }
     default:
       throw new Error(`Unsupported provider '${parsedModel.provider}'.`);
   }
@@ -64,6 +69,8 @@ export function createProviderClient(config: Config, providerName: string) {
   switch (providerName) {
     case "openai":
       return createOpenAI({ apiKey: provider.apiKey });
+    case "openrouter":
+      return createOpenRouter({ apiKey: provider.apiKey });
     default:
       throw new Error(`Unsupported provider '${providerName}'.`);
   }

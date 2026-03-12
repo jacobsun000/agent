@@ -11,6 +11,7 @@ export const CONFIG_FILE_PATH = path.join(CONFIG_PATH, "config.jsonc");
 
 const nonEmptyString = z.string().trim().min(1);
 const portSchema = z.int().min(1).max(65535);
+const providerNameSchema = z.enum(["openai", "openrouter"]);
 const secondsStringSchema = z
   .string()
   .trim()
@@ -49,7 +50,7 @@ const configSchema = z.object({
     }),
   providers: z.array(
     z.object({
-      name: z.literal("openai"),
+      name: providerNameSchema,
       apiKey: nonEmptyString
     })
   ),

@@ -26,6 +26,13 @@ export async function startGateway(): Promise<GatewayHandle> {
   const model = createLanguageModel(config, config.agent.model);
   const attachmentStore = createAttachmentStore();
   const transcriptionService = createTranscriptionService(config);
+  const compactionProvider = getProviderConfig(config, config.agent.model);
+  const compactionConfig = parsedAgentModel.provider === "openai"
+    ? {
+        model: config.agent.model,
+        openAIApiKey: compactionProvider.apiKey
+      }
+    : undefined;
   let bus!: Bus;
   let cron!: CronService;
   let spawnSubAgent!: ReturnType<typeof createSubAgentDispatcher>;
@@ -45,10 +52,7 @@ export async function startGateway(): Promise<GatewayHandle> {
         }
       });
     },
-    compaction: {
-      model: config.agent.model,
-      openAIApiKey: getProviderConfig(config, config.agent.model).apiKey
-    }
+    compaction: compactionConfig
   });
   bus = new Bus({ agent });
   spawnSubAgent = createSubAgentDispatcher({ bus, config });
@@ -121,7 +125,7 @@ export async function startGateway(): Promise<GatewayHandle> {
   logger.box(`Agent Gateway
 Provider: ${provider.name}
 Model: ${config.agent.model}
-Compaction model: ${parsedAgentModel.modelId}`);
+Compaction model: ${compactionConfig ? parsedAgentModel.modelId : "disabled (OpenAI-only)"}`);
 
   let stopPromise: Promise<void> | undefined;
   let resolveStopped!: () => void;
