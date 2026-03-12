@@ -42,104 +42,98 @@ export class TelegramChannel implements Channel {
     this.onStatsSession = config.onStatsSession;
     this.attachmentStore = config.attachmentStore;
     this.transcriptionService = config.transcriptionService;
+    this.bot.catch(async (error, ctx) => {
+      logger.error(`Unhandled Telegram update error: ${error instanceof Error ? error.message : String(error)}`);
+      await this.replyWithInboundError(ctx.chat?.id ? String(ctx.chat.id) : undefined, error);
+    });
 
     this.bot.on(message("text"), async (ctx) => {
-      if (isStatsCommand(ctx.message.text)) {
-        if (!this.onStatsSession) {
-          await ctx.reply("Stats are not configured.");
+      try {
+        if (isStatsCommand(ctx.message.text)) {
+          if (!this.onStatsSession) {
+            await ctx.reply("Stats are not configured.");
+            return;
+          }
+
+          try {
+            const result = await this.onStatsSession({
+              chatId: String(ctx.chat.id)
+            });
+            await ctx.reply(result.message, {
+              parse_mode: "MarkdownV2"
+            });
+          } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            await ctx.reply(`Stats failed: ${detail}`);
+          }
           return;
         }
 
-        try {
-          const result = await this.onStatsSession({
-            chatId: String(ctx.chat.id)
-          });
-          await ctx.reply(result.message, {
-            parse_mode: "MarkdownV2"
-          });
-        } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          await ctx.reply(`Stats failed: ${detail}`);
-        }
-        return;
-      }
+        if (isCompactCommand(ctx.message.text)) {
+          if (!this.onCompactSession) {
+            await ctx.reply("Compaction is not configured.");
+            return;
+          }
 
-      if (isCompactCommand(ctx.message.text)) {
-        if (!this.onCompactSession) {
-          await ctx.reply("Compaction is not configured.");
+          await ctx.reply("Compacting this session. This can take a moment...");
+          try {
+            const result = await this.onCompactSession({
+              chatId: String(ctx.chat.id)
+            });
+            await ctx.reply(result.message);
+          } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            await ctx.reply(`Compaction failed: ${detail}`);
+          }
           return;
         }
 
-        await ctx.reply("Compacting this session. This can take a moment...");
-        try {
-          const result = await this.onCompactSession({
-            chatId: String(ctx.chat.id)
-          });
-          await ctx.reply(result.message);
-        } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          await ctx.reply(`Compaction failed: ${detail}`);
-        }
-        return;
+        await this.onMessage({
+          channel: this.name,
+          chatId: String(ctx.chat.id),
+          text: ctx.message.text,
+        });
+      } catch (error) {
+        await this.replyWithInboundError(String(ctx.chat.id), error);
       }
-
-      await this.onMessage({
-        channel: this.name,
-        chatId: String(ctx.chat.id),
-        text: ctx.message.text,
-      });
     });
 
     this.bot.on(message("voice"), async (ctx) => {
-      const voiceUrl = await this.bot.telegram.getFileLink(ctx.message.voice.file_id);
-      const voiceData = await this.downloadFile(voiceUrl.toString());
-      const mimeType = ctx.message.voice.mime_type ?? "audio/ogg";
-      const transcript = await this.transcriptionService.transcribe({
-        audio: voiceData,
-        mimeType,
-        filename: `telegram-voice-${ctx.message.voice.file_unique_id}.ogg`
-      });
-
-      await this.onMessage({
-        channel: this.name,
-        chatId: String(ctx.chat.id),
-        text: transcript,
-        voice: {
+      try {
+        const voiceUrl = await this.bot.telegram.getFileLink(ctx.message.voice.file_id);
+        const voiceData = await this.downloadFile(voiceUrl.toString());
+        const mimeType = ctx.message.voice.mime_type ?? "audio/ogg";
+        const transcript = await this.transcriptionService.transcribe({
+          audio: voiceData,
           mimeType,
-          data: voiceData,
-          durationSeconds: ctx.message.voice.duration,
-          transcript
-        }
-      });
+          filename: `telegram-voice-${ctx.message.voice.file_unique_id}.ogg`
+        });
+
+        await this.onMessage({
+          channel: this.name,
+          chatId: String(ctx.chat.id),
+          text: transcript,
+          voice: {
+            mimeType,
+            data: voiceData,
+            durationSeconds: ctx.message.voice.duration,
+            transcript
+          }
+        });
+      } catch (error) {
+        await this.replyWithInboundError(String(ctx.chat.id), error);
+      }
     });
 
     this.bot.on(message("photo"), async (ctx) => {
-      const largestPhoto = ctx.message.photo.at(-1);
-      if (!largestPhoto) {
-        return;
-      }
+      try {
+        const largestPhoto = ctx.message.photo.at(-1);
+        if (!largestPhoto) {
+          return;
+        }
 
-      const photoUrl = await this.bot.telegram.getFileLink(largestPhoto.file_id);
-      const imageData = await this.downloadFile(photoUrl.toString());
-      const caption = ctx.message.caption?.trim();
-
-      await this.onMessage({
-        channel: this.name,
-        chatId: String(ctx.chat.id),
-        text: caption && caption.length > 0 ? caption : "Please analyze the attached image.",
-        images: [{
-          mimeType: "image/jpeg",
-          data: imageData,
-          caption
-        }]
-      });
-    });
-
-    this.bot.on(message("document"), async (ctx) => {
-      const mimeType = ctx.message.document.mime_type;
-      if (mimeType?.startsWith("image/")) {
-        const documentUrl = await this.bot.telegram.getFileLink(ctx.message.document.file_id);
-        const imageData = await this.downloadFile(documentUrl.toString());
+        const photoUrl = await this.bot.telegram.getFileLink(largestPhoto.file_id);
+        const imageData = await this.downloadFile(photoUrl.toString());
         const caption = ctx.message.caption?.trim();
 
         await this.onMessage({
@@ -147,34 +141,60 @@ export class TelegramChannel implements Channel {
           chatId: String(ctx.chat.id),
           text: caption && caption.length > 0 ? caption : "Please analyze the attached image.",
           images: [{
-            mimeType,
+            mimeType: "image/jpeg",
             data: imageData,
             caption
           }]
         });
-        return;
+      } catch (error) {
+        await this.replyWithInboundError(String(ctx.chat.id), error);
       }
+    });
 
-      const documentUrl = await this.bot.telegram.getFileLink(ctx.message.document.file_id);
-      const fileData = await this.downloadFile(documentUrl.toString());
-      const caption = ctx.message.caption?.trim();
-      const storedFile = await this.attachmentStore.save({
-        data: fileData,
-        filename: ctx.message.document.file_name
-      });
+    this.bot.on(message("document"), async (ctx) => {
+      try {
+        const mimeType = ctx.message.document.mime_type;
+        if (mimeType?.startsWith("image/")) {
+          const documentUrl = await this.bot.telegram.getFileLink(ctx.message.document.file_id);
+          const imageData = await this.downloadFile(documentUrl.toString());
+          const caption = ctx.message.caption?.trim();
 
-      await this.onMessage({
-        channel: this.name,
-        chatId: String(ctx.chat.id),
-        text: caption && caption.length > 0 ? caption : "Please review the attached file.",
-        files: [{
-          mimeType: mimeType ?? "application/octet-stream",
-          originalName: storedFile.originalName,
-          path: storedFile.path,
-          sizeBytes: storedFile.sizeBytes,
-          caption
-        }]
-      });
+          await this.onMessage({
+            channel: this.name,
+            chatId: String(ctx.chat.id),
+            text: caption && caption.length > 0 ? caption : "Please analyze the attached image.",
+            images: [{
+              mimeType,
+              data: imageData,
+              caption
+            }]
+          });
+          return;
+        }
+
+        const documentUrl = await this.bot.telegram.getFileLink(ctx.message.document.file_id);
+        const fileData = await this.downloadFile(documentUrl.toString());
+        const caption = ctx.message.caption?.trim();
+        const storedFile = await this.attachmentStore.save({
+          data: fileData,
+          filename: ctx.message.document.file_name
+        });
+
+        await this.onMessage({
+          channel: this.name,
+          chatId: String(ctx.chat.id),
+          text: caption && caption.length > 0 ? caption : "Please review the attached file.",
+          files: [{
+            mimeType: mimeType ?? "application/octet-stream",
+            originalName: storedFile.originalName,
+            path: storedFile.path,
+            sizeBytes: storedFile.sizeBytes,
+            caption
+          }]
+        });
+      } catch (error) {
+        await this.replyWithInboundError(String(ctx.chat.id), error);
+      }
     });
   }
 
@@ -322,6 +342,21 @@ export class TelegramChannel implements Channel {
     return new Uint8Array(buffer);
   }
 
+  private async replyWithInboundError(chatId: string | undefined, error: unknown): Promise<void> {
+    const detail = error instanceof Error ? error.message : String(error);
+    logger.error(detail);
+    if (!chatId) {
+      return;
+    }
+
+    const message = formatTelegramInboundErrorMessage(detail);
+    try {
+      await this.bot.telegram.sendMessage(chatId, message);
+    } catch (sendError) {
+      logger.error(sendError instanceof Error ? sendError.message : String(sendError));
+    }
+  }
+
   private async ensureCompleteFinalDelivery(input: {
     chatId: string;
     messageId: number;
@@ -340,7 +375,7 @@ export class TelegramChannel implements Channel {
   }
 
   private async editInitialMessage(chatId: string, messageId: number, text: string) {
-    const markdown = telegramifyMarkdown(text, "escape");
+    const markdown = telegramifyMarkdown(sanitizeTelegramMarkdownInput(text), "remove");
 
     try {
       await this.bot.telegram.editMessageText(chatId, messageId, undefined, markdown, {
@@ -361,7 +396,7 @@ export class TelegramChannel implements Channel {
   }
 
   private async sendMessageWithMarkdownFallback(chatId: string, text: string) {
-    const markdown = telegramifyMarkdown(text, "escape");
+    const markdown = telegramifyMarkdown(sanitizeTelegramMarkdownInput(text), "remove");
 
     try {
       await this.bot.telegram.sendMessage(chatId, markdown, {
@@ -398,6 +433,19 @@ function splitIntoTelegramChunks(value: string): string[] {
   }
 
   return chunks;
+}
+
+function sanitizeTelegramMarkdownInput(value: string): string {
+  return value.replaceAll(/<(think|reasoning|analysis)>[\s\S]*?<\/\1>/gi, "").trim();
+}
+
+function formatTelegramInboundErrorMessage(detail: string): string {
+  const normalized = detail.toLowerCase();
+  if (normalized.includes("timed out") || normalized.includes("timeout")) {
+    return `Request timed out while processing your message: ${detail}`;
+  }
+
+  return `Failed to process your message: ${detail}`;
 }
 
 function isIgnorableTelegramEditError(error: unknown): boolean {
