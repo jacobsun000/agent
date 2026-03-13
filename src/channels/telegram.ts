@@ -5,10 +5,9 @@ import { Input } from "telegraf";
 import { message } from "telegraf/filters";
 import telegramifyMarkdown = require("telegramify-markdown");
 
-import { type Channel, type OutboundAttachment } from "@/channels/types";
-import { type InboundMessage, type OutboundMessageStream } from "@/bus/bus";
-import { type AttachmentStore } from "@/services/attachment-store";
-import { type TranscriptionService } from "@/services/transcribe";
+import { Channel } from "@/channels/types";
+import { InboundMessage, OutboundMessageStream, OutboundAttachment } from "@/bus";
+import { AttachmentStore } from "@/services/attachment-store";
 import { createLogger } from "@/utils/logger";
 
 
@@ -18,10 +17,8 @@ const TELEGRAM_MAX_MESSAGE_CHARS = 4096;
 type TelegramChannelConfig = {
   token: string;
   onMessage: (message: InboundMessage) => Promise<void>;
-  onCompactSession?: (input: { chatId: string }) => Promise<{ message: string }>;
-  onStatsSession?: (input: { chatId: string }) => Promise<{ message: string }>;
+  onCompactSession?: (input: { chatId: string }) => Promise<string>;
   attachmentStore: AttachmentStore;
-  transcriptionService: TranscriptionService;
 };
 
 const logger = createLogger("channel:telegram");
@@ -31,17 +28,13 @@ export class TelegramChannel implements Channel {
   private readonly bot: Telegraf;
   private readonly onMessage: TelegramChannelConfig["onMessage"];
   private readonly onCompactSession?: TelegramChannelConfig["onCompactSession"];
-  private readonly onStatsSession?: TelegramChannelConfig["onStatsSession"];
   private readonly attachmentStore: AttachmentStore;
-  private readonly transcriptionService: TranscriptionService;
 
   constructor(config: TelegramChannelConfig) {
     this.bot = new Telegraf(config.token);
     this.onMessage = config.onMessage;
     this.onCompactSession = config.onCompactSession;
-    this.onStatsSession = config.onStatsSession;
     this.attachmentStore = config.attachmentStore;
-    this.transcriptionService = config.transcriptionService;
     this.bot.catch(async (error, ctx) => {
       logger.error(`Unhandled Telegram update error: ${error instanceof Error ? error.message : String(error)}`);
       await this.replyWithInboundError(ctx.chat?.id ? String(ctx.chat.id) : undefined, error);
@@ -49,26 +42,6 @@ export class TelegramChannel implements Channel {
 
     this.bot.on(message("text"), async (ctx) => {
       try {
-        if (isStatsCommand(ctx.message.text)) {
-          if (!this.onStatsSession) {
-            await ctx.reply("Stats are not configured.");
-            return;
-          }
-
-          try {
-            const result = await this.onStatsSession({
-              chatId: String(ctx.chat.id)
-            });
-            await ctx.reply(result.message, {
-              parse_mode: "MarkdownV2"
-            });
-          } catch (error) {
-            const detail = error instanceof Error ? error.message : String(error);
-            await ctx.reply(`Stats failed: ${detail}`);
-          }
-          return;
-        }
-
         if (isCompactCommand(ctx.message.text)) {
           if (!this.onCompactSession) {
             await ctx.reply("Compaction is not configured.");
@@ -80,7 +53,7 @@ export class TelegramChannel implements Channel {
             const result = await this.onCompactSession({
               chatId: String(ctx.chat.id)
             });
-            await ctx.reply(result.message);
+            await ctx.reply(result);
           } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
             await ctx.reply(`Compaction failed: ${detail}`);
@@ -103,21 +76,14 @@ export class TelegramChannel implements Channel {
         const voiceUrl = await this.bot.telegram.getFileLink(ctx.message.voice.file_id);
         const voiceData = await this.downloadFile(voiceUrl.toString());
         const mimeType = ctx.message.voice.mime_type ?? "audio/ogg";
-        const transcript = await this.transcriptionService.transcribe({
-          audio: voiceData,
-          mimeType,
-          filename: `telegram-voice-${ctx.message.voice.file_unique_id}.ogg`
-        });
-
         await this.onMessage({
           channel: this.name,
           chatId: String(ctx.chat.id),
-          text: transcript,
+          text: "",
           voice: {
             mimeType,
             data: voiceData,
             durationSeconds: ctx.message.voice.duration,
-            transcript
           }
         });
       } catch (error) {
@@ -327,7 +293,7 @@ export class TelegramChannel implements Channel {
   async sendAttachment(chatId: string, attachment: OutboundAttachment): Promise<void> {
     await this.bot.telegram.sendDocument(
       chatId,
-      Input.fromLocalFile(attachment.path, attachment.filename ?? path.basename(attachment.path)),
+      Input.fromLocalFile(attachment.path, attachment.path ?? path.basename(attachment.path)),
       attachment.caption ? { caption: attachment.caption } : undefined
     );
   }
@@ -467,9 +433,4 @@ function isTelegramMarkdownParseError(error: unknown): boolean {
 function isCompactCommand(text: string): boolean {
   const command = text.trim().split(/\s+/)[0]?.toLowerCase();
   return command === "/compact" || command?.startsWith("/compact@") === true;
-}
-
-function isStatsCommand(text: string): boolean {
-  const command = text.trim().split(/\s+/)[0]?.toLowerCase();
-  return command === "/stats" || command?.startsWith("/stats@") === true;
 }

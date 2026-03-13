@@ -1,8 +1,13 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { type LanguageModel } from "ai";
+import { TranscriptionModel, type LanguageModel } from "ai";
 
-import { type Config } from "@/utils/config";
+import { config, type Config } from "@/utils/config";
+
+export const mainAgentModel = createLanguageModel(config, config.agent.model);
+export const subAgentModel = createLanguageModel(config, config.subagent.model);
+export const summaryAgentModel = createLanguageModel(config, config.agent.model);
+export const transcribeModel = createTranscribeModel(config, config.agent.transcriptionModel);
 
 export type ParsedModel = {
   provider: string;
@@ -35,6 +40,24 @@ export function parseModel(value: string): ParsedModel {
     provider,
     modelId
   };
+}
+
+export function createTranscribeModel(config: Config, model: string): TranscriptionModel {
+  const parsedModel = parseModel(model);
+  const provider = config.providers.find((entry) => entry.name === parsedModel.provider);
+
+  if (!provider) {
+    throw new Error(`No provider named '${parsedModel.provider}' configured.`);
+  }
+
+  switch (parsedModel.provider) {
+    case "openai": {
+      const openai = createOpenAI({ apiKey: provider.apiKey });
+      return openai.transcription(parsedModel.modelId);
+    }
+    default:
+      throw new Error(`Unsupported provider '${parsedModel.provider}'.`);
+  }
 }
 
 export function createLanguageModel(config: Config, model: string): LanguageModel {

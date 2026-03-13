@@ -64,22 +64,15 @@ export const cronInputSchema = z.object({
 export type CronToolInput = z.infer<typeof cronInputSchema>;
 
 type CronToolConfig = {
-  enabled: boolean;
   onAction: (input: CronToolInput) => Promise<unknown>;
 };
 
 export function createCronTool(config: CronToolConfig) {
   return tool({
     title: "cron",
-    description: config.enabled
-      ? "Manage scheduled jobs persisted in <workspace>/crons.json. Use add for precise schedules or reminders, list to inspect jobs, and remove to delete a job."
-      : "Unavailable in this context.",
+    description: "Manage scheduled jobs persisted in <workspace>/crons.json. Use add for precise schedules or reminders, list to inspect jobs, and remove to delete a job.",
     inputSchema: cronInputSchema,
     async execute(input) {
-      if (!config.enabled) {
-        throw new Error("The cron tool is unavailable in this context.");
-      }
-
       return config.onAction(input);
     }
   });

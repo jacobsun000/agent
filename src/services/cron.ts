@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 
-import { type Bus } from "@/bus/bus";
+import { type Bus } from "@/bus";
 import { type CronToolInput } from "@/core/tools/cron";
 import { type Config } from "@/utils/config";
 import { getConfiguredReportSession, loadConfiguredReportSession } from "@/utils/default-session";

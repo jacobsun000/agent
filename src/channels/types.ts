@@ -1,12 +1,7 @@
-import { OutboundMessageStream } from "@/bus/bus";
+import { OutboundMessageStream, OutboundAttachment } from "@/bus";
 
 export type ChannelName = "http" | "telegram";
 
-export type OutboundAttachment = {
-  path: string;
-  filename?: string;
-  caption?: string;
-};
 
 export interface Channel {
   readonly name: ChannelName;

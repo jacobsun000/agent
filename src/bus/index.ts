@@ -1,6 +1,5 @@
 import { Agent } from "@/core/agent";
-import { type ContextStatistics } from "@/core/context";
-import { type ChannelName, type Channel, type OutboundAttachment } from "@/channels/types";
+import { type ChannelName, type Channel } from "@/channels/types";
 import { initializeDeferredTelegramReportSessions } from "@/utils/default-session";
 import { ensurePairingCode, isSessionPaired } from "@/utils/pairing";
 import { createLogger } from "@/utils/logger";
@@ -9,6 +8,11 @@ export type OutboundMessageStream = {
   write(delta: string): Promise<void>;
   finish(): Promise<void>;
   fail(message: string): Promise<void>;
+};
+
+export type OutboundAttachment = {
+  path: string;
+  caption: string;
 };
 
 export type InboundImage = {
@@ -21,7 +25,6 @@ export type InboundVoice = {
   mimeType: string;
   data: Uint8Array;
   durationSeconds?: number;
-  transcript: string;
 };
 
 export type InboundFile = {
@@ -45,30 +48,15 @@ export type InboundMessage = {
     task: string;
   } | {
     type: "scheduled";
-    scheduler: "cron";
+    scheduler: "cron" | "heartbeat";
     jobId: string;
   };
 };
-
 
 const logger = createLogger("bus");
 
 type BusConfig = {
   agent: Agent;
-};
-
-export type CompactSessionResult = {
-  compacted: boolean;
-  message: string;
-  beforeMessages: number;
-  afterMessages: number;
-  compactedResponseId?: string;
-};
-
-export type SessionStatisticsResult = {
-  paired: boolean;
-  message?: string;
-  statistics?: ContextStatistics;
 };
 
 export class Bus {
@@ -84,71 +72,6 @@ export class Bus {
     this.channels.push(channel);
   }
 
-  async sendAttachment(message: {
-    channel: ChannelName;
-    chatId: string;
-    attachment: OutboundAttachment;
-  }) {
-    const channel = this.channels.find((entry) => entry.name === message.channel);
-    if (!channel) {
-      throw new Error(`Channel '${message.channel}' is not registered.`);
-    }
-
-    await channel.sendAttachment(message.chatId, message.attachment);
-  }
-
-  async dispatch(message: InboundMessage) {
-    const sessionKey = `${message.channel}:${message.chatId}`;
-    await this.withSessionLock(sessionKey, async () => {
-      await this.processMessage(sessionKey, message);
-    });
-  }
-
-  async compactSession(input: {
-    channel: ChannelName;
-    chatId: string;
-  }): Promise<CompactSessionResult> {
-    const sessionKey = `${input.channel}:${input.chatId}`;
-    return this.withSessionLock(sessionKey, async () => {
-      if (!isSessionPaired(sessionKey)) {
-        const pairing = ensurePairingCode(sessionKey);
-        return {
-          compacted: false,
-          message: `Session is not paired yet. Pairing code: ${pairing.code}`,
-          beforeMessages: 0,
-          afterMessages: 0
-        };
-      }
-
-      return this.agent.compactContext({
-        contextId: sessionKey,
-        channel: input.channel,
-        chatId: input.chatId
-      });
-    });
-  }
-
-  async getSessionStatistics(input: {
-    channel: ChannelName;
-    chatId: string;
-  }): Promise<SessionStatisticsResult> {
-    const sessionKey = `${input.channel}:${input.chatId}`;
-    return this.withSessionLock(sessionKey, async () => {
-      if (!isSessionPaired(sessionKey)) {
-        const pairing = ensurePairingCode(sessionKey);
-        return {
-          paired: false,
-          message: `Session is not paired yet. Pairing code: ${pairing.code}`
-        };
-      }
-
-      return {
-        paired: true,
-        statistics: this.agent.getContextStatistics(sessionKey)
-      };
-    });
-  }
-
   async start() {
     logger.info("Starting channels...");
     await Promise.all(
@@ -160,6 +83,26 @@ export class Bus {
 
   async stop() {
     await Promise.all(this.channels.map(async (channel) => channel.stop()));
+  }
+
+  async dispatch(message: InboundMessage) {
+    const sessionKey = `${message.channel}:${message.chatId}`;
+    await this.withSessionLock(sessionKey, async () => {
+      await this.processMessage(sessionKey, message);
+    });
+  }
+
+  async sendAttachment(message: {
+    channel: ChannelName;
+    chatId: string;
+    attachment: OutboundAttachment;
+  }) {
+    const channel = this.channels.find((entry) => entry.name === message.channel);
+    if (!channel) {
+      throw new Error(`Channel '${message.channel}' is not registered.`);
+    }
+
+    await channel.sendAttachment(message.chatId, message.attachment);
   }
 
   async dispatchSubAgentResult(message: {
@@ -175,10 +118,6 @@ export class Bus {
       chatId: message.chatId,
       text: [
         `Sub-agent "${message.label}" completed its delegated task.`,
-        "",
-        `Delegated task:`,
-        message.task,
-        "",
         "Sub-agent response:",
         message.response
       ].join("\n"),
@@ -224,8 +163,8 @@ export class Bus {
       const response = await this.agent.runTurn({
         channel: message.channel,
         chatId: message.chatId,
-        contextId: sessionKey,
         text: this.buildAgentInputText(message),
+        voice: message.voice,
         images: message.images,
         onTextDelta: async (delta) => {
           if (replyStream) {
@@ -238,10 +177,9 @@ export class Bus {
         await replyStream.finish();
       }
     } catch (error) {
-      const detail = this.getErrorDetail(error);
-      logger.error(detail);
+      logger.error(error);
       if (replyStream) {
-        await replyStream.fail(this.formatFailureMessage(detail));
+        await replyStream.fail(`[ERROR]: ${error}`);
       }
     }
   }
@@ -277,34 +215,13 @@ export class Bus {
     }
 
     return [
+      message.text,
+      "",
       "[ATTACHED_FILES]",
       "The user uploaded local file attachments. These files are available in the workspace.",
       ...filePaths.map((filePath) => `- ${filePath}`),
       "[/ATTACHED_FILES]",
-      "",
-      message.text
     ].join("\n");
-  }
-
-  private getErrorDetail(error: unknown): string {
-    if (error instanceof Error && error.message.trim() !== "") {
-      return error.message;
-    }
-
-    if (typeof error === "string" && error.trim() !== "") {
-      return error;
-    }
-
-    return "Unknown error";
-  }
-
-  private formatFailureMessage(detail: string): string {
-    const normalized = detail.toLowerCase();
-    if (normalized.includes("timed out") || normalized.includes("timeout")) {
-      return `Tool execution timed out: ${detail}`;
-    }
-
-    return `Agent failed: ${detail}`;
   }
 
   private async withSessionLock<T>(sessionKey: string, work: () => Promise<T>): Promise<T> {

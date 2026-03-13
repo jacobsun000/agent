@@ -1,4 +1,4 @@
-import { Bus } from "@/bus/bus";
+import { Bus } from "@/bus";
 import { HttpChannel } from "@/channels/http";
 import { TelegramChannel } from "@/channels/telegram";
 import { Agent } from "@/core/agent";
@@ -6,11 +6,10 @@ import { createAttachmentStore } from "@/services/attachment-store";
 import { CronService } from "@/services/cron";
 import { HeartbeatService } from "@/services/heartbeat";
 import { createSubAgentDispatcher } from "@/services/sub-agent-dispatcher";
-import { createTranscriptionService } from "@/services/transcribe";
 import { createLogger } from "@/utils/logger";
 import { getProviderConfig, loadConfig } from "@/utils/config";
-import { createLanguageModel, parseModel } from "@/utils/model";
-import { formatContextStatisticsMarkdown, formatSessionStatsMarkdownMessage } from "@/utils/utils";
+import { createLanguageModel, transcribeModel } from "@/utils/model";
+import { getSystemPrompt } from "@/core/prompt";
 
 const logger = createLogger("gateway");
 
@@ -22,44 +21,32 @@ type GatewayHandle = {
 export async function startGateway(): Promise<GatewayHandle> {
   const config = loadConfig();
   const provider = getProviderConfig(config);
-  const parsedAgentModel = parseModel(config.agent.model);
   const model = createLanguageModel(config, config.agent.model);
   const attachmentStore = createAttachmentStore();
-  const transcriptionService = createTranscriptionService(config);
-  const compactionProvider = getProviderConfig(config, config.agent.model);
-  const compactionConfig = parsedAgentModel.provider === "openai"
-    ? {
-        model: config.agent.model,
-        openAIApiKey: compactionProvider.apiKey
-      }
-    : undefined;
+  const mainSystemPrompt = await getSystemPrompt('main');
   let bus!: Bus;
   let cron!: CronService;
   let spawnSubAgent!: ReturnType<typeof createSubAgentDispatcher>;
   const agent = new Agent({
+    systemPrompt: mainSystemPrompt,
+    transcribeModel: transcribeModel,
     model,
-    memoryWindow: config.agent.memoryWindow,
     onSubAgentSpawn: async (request) => spawnSubAgent(request),
     onCronAction: async (input) => cron.handleToolAction(input),
-    onSendFile: async ({ channel, chatId, path, filename, caption }) => {
+    onSendFile: async ({ channel, chatId, path, caption }) => {
       await bus.sendAttachment({
         channel,
         chatId,
         attachment: {
           path,
-          filename,
           caption
         }
       });
     },
-    compaction: compactionConfig
   });
   bus = new Bus({ agent });
   spawnSubAgent = createSubAgentDispatcher({ bus, config });
-  cron = new CronService({
-    bus,
-    config
-  });
+  cron = new CronService({ bus, config });
   const heartbeat = new HeartbeatService({
     bus,
     config,
@@ -83,34 +70,6 @@ export async function startGateway(): Promise<GatewayHandle> {
       new TelegramChannel({
         ...config.channels.telegram,
         attachmentStore,
-        transcriptionService,
-        onCompactSession: async ({ chatId }) =>
-          bus.compactSession({
-            channel: "telegram",
-            chatId
-          }),
-        onStatsSession: async ({ chatId }) => {
-          const result = await bus.getSessionStatistics({
-            channel: "telegram",
-            chatId
-          });
-
-          if (!result.paired) {
-            return {
-              message: formatSessionStatsMarkdownMessage(result.message ?? "Session is not paired.")
-            };
-          }
-
-          if (!result.statistics) {
-            return {
-              message: formatSessionStatsMarkdownMessage("No statistics available.")
-            };
-          }
-
-          return {
-            message: formatContextStatisticsMarkdown(result.statistics)
-          };
-        },
         onMessage: async (message) => {
           await bus.dispatch(message);
         }
@@ -124,8 +83,7 @@ export async function startGateway(): Promise<GatewayHandle> {
 
   logger.box(`Agent Gateway
 Provider: ${provider.name}
-Model: ${config.agent.model}
-Compaction model: ${compactionConfig ? parsedAgentModel.modelId : "disabled (OpenAI-only)"}`);
+Model: ${config.agent.model}`);
 
   let stopPromise: Promise<void> | undefined;
   let resolveStopped!: () => void;

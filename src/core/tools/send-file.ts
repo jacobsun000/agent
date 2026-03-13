@@ -12,7 +12,7 @@ const sendFileInputSchema = z.object({
 
 type SendFileToolConfig = {
   enabled: boolean;
-  onSend: (input: { path: string; filename?: string; caption?: string }) => Promise<void>;
+  onSend: (input: { path: string; caption: string }) => Promise<void>;
 };
 
 export function createSendFileTool(config: SendFileToolConfig) {
@@ -37,15 +37,13 @@ export function createSendFileTool(config: SendFileToolConfig) {
 
       await config.onSend({
         path: resolvedPath,
-        filename: input.filename,
-        caption: input.caption
+        caption: input.caption || ""
       });
 
       return {
         status: "sent" as const,
         path: resolvedPath,
         sizeBytes: fileStat.size,
-        filename: input.filename ?? path.basename(resolvedPath)
       };
     }
   });

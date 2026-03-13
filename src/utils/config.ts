@@ -4,7 +4,6 @@ import { z } from "zod";
 import path from "node:path";
 
 import { CONFIG_PATH } from "@/utils/utils";
-import { parseModel } from "@/utils/model";
 import { DEFERRED_TELEGRAM_REPORT_SESSION, isDeferredSessionTarget } from "@/utils/session-target";
 
 export const CONFIG_FILE_PATH = path.join(CONFIG_PATH, "config.jsonc");
@@ -29,6 +28,10 @@ const configSchema = z.object({
     model: nonEmptyString,
     transcriptionModel: nonEmptyString.default("openai/gpt-4o-mini-transcribe"),
     memoryWindow: z.int().positive().optional()
+  }),
+  subagent: z.object({
+    model: nonEmptyString,
+    maxIterations: z.int().positive().optional(),
   }),
   heartbeat: z
     .object({
@@ -148,7 +151,22 @@ export type Config = z.infer<typeof configSchema>;
 export type ProviderConfig = Config["providers"][number];
 
 export function getProviderNameFromModel(model: string): string {
-  return parseModel(model).provider;
+  const trimmed = model.trim();
+  if (trimmed === "") {
+    throw new Error("Model must be non-empty.");
+  }
+
+  const separatorIndex = trimmed.indexOf("/");
+  if (separatorIndex === -1) {
+    throw new Error("Model must be in the format '<provider>/<model>'.");
+  }
+
+  const provider = trimmed.slice(0, separatorIndex).trim();
+  if (provider === "") {
+    throw new Error("Model must start with '<provider>/'.");
+  }
+
+  return provider;
 }
 
 export function getProviderConfig(config: Config, model = config.agent.model): ProviderConfig {
@@ -195,3 +213,5 @@ export function loadConfig(): Config {
 
   return result.data;
 }
+
+export const config = loadConfig();

@@ -4,11 +4,8 @@ import { z } from "zod";
 
 const MAX_OUTPUT_CHARS = 8192;
 const DEFAULT_TIMEOUT_MS = 60_000;
-const SUB_AGENT_LLM_CLI_TIMEOUT_MS = 60 * 60 * 1_000;
 
-type ExecToolMode = "main" | "sub_agent" | "heartbeat";
-
-type ExecResult = {
+export type ExecResult = {
   exitCode: number | null;
   stdout: string;
   stderr: string;
@@ -16,7 +13,7 @@ type ExecResult = {
   error?: string;
 };
 
-export function createExecTool(mode: ExecToolMode) {
+export function createExecTool(timeoutMs: number = DEFAULT_TIMEOUT_MS) {
   return tool({
     title: "exec",
     description: "Execute a shell command and return its output. Use with caution.",
@@ -24,7 +21,7 @@ export function createExecTool(mode: ExecToolMode) {
       command: z.string().min(1, "Command must not be empty.")
     }),
     async execute({ command }) {
-      return executeBash(command, resolveTimeoutMs(mode, command));
+      return executeBash(command, timeoutMs);
     }
   });
 }
@@ -74,30 +71,6 @@ function executeBash(command: string, timeoutMs: number): Promise<ExecResult> {
       });
     });
   });
-}
-
-function resolveTimeoutMs(mode: ExecToolMode, command: string): number {
-  if (mode !== "sub_agent") {
-    return DEFAULT_TIMEOUT_MS;
-  }
-
-  const executable = extractLeadingExecutable(command);
-  if (executable === "codex" || executable === "claude") {
-    return SUB_AGENT_LLM_CLI_TIMEOUT_MS;
-  }
-
-  return DEFAULT_TIMEOUT_MS;
-}
-
-function extractLeadingExecutable(command: string): string | null {
-  const trimmed = command.trimStart();
-  const match = trimmed.match(/^([^\s;&|]+)/);
-  if (!match) {
-    return null;
-  }
-
-  const executable = match[1].split("/").pop();
-  return executable ?? null;
 }
 
 function truncate(value: string): string {

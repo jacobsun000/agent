@@ -3,8 +3,8 @@ import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import path from "node:path";
 
-import { type InboundMessage, type OutboundMessageStream } from "@/bus/bus";
-import { type Channel, type OutboundAttachment } from "@/channels/types";
+import { type InboundMessage, type OutboundMessageStream, type OutboundAttachment } from "@/bus";
+import { type Channel } from "@/channels/types";
 import { type AttachmentStore } from "@/services/attachment-store";
 import { createLogger } from "@/utils/logger";
 
@@ -132,7 +132,7 @@ export class HttpChannel implements Channel {
     const fileData = await readFile(attachment.path);
     await replyStream.writeEvent({
       type: "attachment",
-      filename: attachment.filename ?? path.basename(attachment.path),
+      filename: attachment.path ?? path.basename(attachment.path),
       path: attachment.path,
       caption: attachment.caption,
       dataBase64: fileData.toString("base64")
@@ -155,22 +155,22 @@ export class HttpChannel implements Channel {
     const chatId = payload.chatId ?? this.deriveChatId(request);
     const files = payload.files
       ? await Promise.all(
-          payload.files.map(async (file) => {
-            const data = Uint8Array.from(Buffer.from(file.dataBase64, "base64"));
-            const storedFile = await this.attachmentStore.save({
-              data,
-              filename: file.filename
-            });
+        payload.files.map(async (file) => {
+          const data = Uint8Array.from(Buffer.from(file.dataBase64, "base64"));
+          const storedFile = await this.attachmentStore.save({
+            data,
+            filename: file.filename
+          });
 
-            return {
-              mimeType: file.mimeType ?? "application/octet-stream",
-              originalName: storedFile.originalName,
-              path: storedFile.path,
-              sizeBytes: storedFile.sizeBytes,
-              caption: file.caption
-            };
-          })
-        )
+          return {
+            mimeType: file.mimeType ?? "application/octet-stream",
+            originalName: storedFile.originalName,
+            path: storedFile.path,
+            sizeBytes: storedFile.sizeBytes,
+            caption: file.caption
+          };
+        })
+      )
       : undefined;
 
     response.writeHead(200, {
@@ -303,30 +303,30 @@ export class HttpChannel implements Channel {
       text,
       images: Array.isArray(images)
         ? images.map((image) => ({
-            mimeType: (image as { mimeType: string }).mimeType.trim(),
-            dataBase64: (image as { dataBase64: string }).dataBase64.trim(),
-            caption:
-              typeof (image as { caption?: unknown }).caption === "string"
-                ? (image as { caption: string }).caption
-                : undefined
-          }))
+          mimeType: (image as { mimeType: string }).mimeType.trim(),
+          dataBase64: (image as { dataBase64: string }).dataBase64.trim(),
+          caption:
+            typeof (image as { caption?: unknown }).caption === "string"
+              ? (image as { caption: string }).caption
+              : undefined
+        }))
         : undefined,
       files: Array.isArray(files)
         ? files.map((file) => ({
-            filename:
-              typeof (file as { filename?: unknown }).filename === "string"
-                ? (file as { filename: string }).filename.trim()
-                : undefined,
-            mimeType:
-              typeof (file as { mimeType?: unknown }).mimeType === "string"
-                ? (file as { mimeType: string }).mimeType.trim()
-                : undefined,
-            dataBase64: (file as { dataBase64: string }).dataBase64.trim(),
-            caption:
-              typeof (file as { caption?: unknown }).caption === "string"
-                ? (file as { caption: string }).caption
-                : undefined
-          }))
+          filename:
+            typeof (file as { filename?: unknown }).filename === "string"
+              ? (file as { filename: string }).filename.trim()
+              : undefined,
+          mimeType:
+            typeof (file as { mimeType?: unknown }).mimeType === "string"
+              ? (file as { mimeType: string }).mimeType.trim()
+              : undefined,
+          dataBase64: (file as { dataBase64: string }).dataBase64.trim(),
+          caption:
+            typeof (file as { caption?: unknown }).caption === "string"
+              ? (file as { caption: string }).caption
+              : undefined
+        }))
         : undefined
     };
   }

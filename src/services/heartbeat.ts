@@ -1,13 +1,14 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { type Bus } from "@/bus/bus";
+import { type Bus } from "@/bus";
 import { Agent, type SubAgentRequest } from "@/core/agent";
 import { type Config } from "@/utils/config";
 import { getConfiguredReportSession, loadConfiguredReportSession } from "@/utils/default-session";
 import { createLogger } from "@/utils/logger";
 import { createLanguageModel } from "@/utils/model";
 import { CONFIG_PATH, pathExists } from "@/utils/utils";
+import { HEARTBEAT_PROMPT } from "@/core/prompt";
 
 const logger = createLogger("heartbeat");
 const HEARTBEAT_FILE_PATH = path.join(CONFIG_PATH, "workspace", "HEARTBEAT.md");
@@ -34,8 +35,8 @@ export class HeartbeatService {
     const model = createLanguageModel(config.config, config.config.heartbeat.model);
 
     this.heartbeatAgent = new Agent({
+      systemPrompt: HEARTBEAT_PROMPT,
       model,
-      mode: "heartbeat",
       onSubAgentSpawn: config.dispatchSubAgent
     });
   }
@@ -106,11 +107,9 @@ export class HeartbeatService {
         return;
       }
 
-      const contextId = `heartbeat:${Date.now()}`;
       const response = await this.heartbeatAgent.runTurn({
         channel: reportSession.channel,
         chatId: reportSession.chatId,
-        contextId,
         text: [
           "Review the following HEARTBEAT.md content.",
           "Only determine whether there are actionable active tasks.",
