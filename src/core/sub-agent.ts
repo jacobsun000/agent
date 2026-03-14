@@ -2,9 +2,11 @@ import { type LanguageModel, stepCountIs, generateText } from "ai";
 
 import { Context } from "@/core/context";
 import { createExecTool } from "@/core/tools/exec";
+import { Statistics } from "@/core/statistics";
 
 const SUB_AGENT_CLI_TIMEOUT_MS = 60 * 60 * 1_000; // 1 hour
 const MAX_CONTEXT_WINDOW = 512000;
+const statistics = Statistics.getInstance();
 
 type SubAgentConfig = {
   model: LanguageModel;
@@ -35,6 +37,7 @@ export class SubAgent {
       tools: { exec: createExecTool(SUB_AGENT_CLI_TIMEOUT_MS) },
       stopWhen: stepCountIs(this.maxIterations),
     });
+    statistics.addLanguageModelUsage(result.totalUsage);
     this.context.add(result.response.messages);
     const assistantText = result.text;
     const inputTokens = result.totalUsage.inputTokens || 0;
@@ -44,4 +47,3 @@ export class SubAgent {
     return assistantText;
   }
 }
-

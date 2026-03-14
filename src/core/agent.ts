@@ -9,12 +9,14 @@ import { createExecTool } from "@/core/tools/exec";
 import { createSendFileTool } from "@/core/tools/send-file";
 import { createSubAgentTool } from "@/core/tools/sub-agent";
 import { createCronTool, type CronToolInput } from "@/core/tools/cron";
+import { Statistics } from "@/core/statistics";
 
 
 const AGENT_CLI_TIMEOUT_MS = 2 * 1_000; // 2 minutes
 const MAX_CONTEXT_WINDOW = 512000;
 
 const logger = createLogger("agent");
+const statistics = Statistics.getInstance();
 
 export type AgentMode = "main" | "sub_agent" | "heartbeat";
 
@@ -103,6 +105,7 @@ export class Agent {
     }
 
     const [response, totalUsage] = await Promise.all([result.response, result.totalUsage]);
+    statistics.addLanguageModelUsage(totalUsage);
     const inputTokens = totalUsage.inputTokens || 0;
     await this.context.add(response.messages as ModelMessage[]);
     if (inputTokens > MAX_CONTEXT_WINDOW) {
