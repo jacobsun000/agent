@@ -1,10 +1,18 @@
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
+import { createInterface } from "node:readline/promises";
+import { stdin as input, stdout as output } from "node:process";
 
 import { runCliClient } from "@/services/cli-client";
 import { startGateway } from "@/services/gateway";
 import { bootstrapConfigInteractive, bootstrapWorkspace } from "@/utils/bootstrap";
 import { loadConfig } from "@/utils/config";
+import {
+  createCodexAuthorizationFlow,
+  exchangeCodexAuthorizationCode,
+  parseCodexAuthorizationInput,
+  saveCodexCredential
+} from "@/utils/codex-auth";
 import { createLogger } from "@/utils/logger";
 import { approvePairingCode } from "@/utils/pairing";
 import {
@@ -17,6 +25,41 @@ import {
 } from "@/utils/service";
 
 const logger = createLogger("main");
+
+async function promptAuthorizationInput(question: string): Promise<string> {
+  const rl = createInterface({ input, output });
+  try {
+    return await rl.question(question);
+  } finally {
+    rl.close();
+  }
+}
+
+async function runCodexAuthCommand(options: { code?: string; callback?: string }): Promise<void> {
+  const flow = await createCodexAuthorizationFlow("agent");
+
+  logger.box(`Codex OAuth
+Open this URL in your browser and complete sign-in:
+${flow.url}
+
+After sign-in, copy either the callback URL or the 'code' value and paste it below.`);
+
+  const providedInput = options.callback ?? options.code;
+  const authInput = providedInput ?? await promptAuthorizationInput("Callback URL or code: ");
+  const parsedInput = parseCodexAuthorizationInput(authInput);
+
+  if (!parsedInput.code) {
+    throw new Error("Missing OAuth authorization code.");
+  }
+
+  if (parsedInput.state && parsedInput.state !== flow.state) {
+    throw new Error("OAuth state mismatch. Please restart with `agent auth codex`.");
+  }
+
+  const credential = await exchangeCodexAuthorizationCode(parsedInput.code, flow.verifier);
+  await saveCodexCredential(credential);
+  logger.info("Codex OAuth credentials saved to ~/.agent/auth.json.");
+}
 
 async function runGatewayForeground(): Promise<void> {
   const gateway = await startGateway();
@@ -51,6 +94,34 @@ async function main() {
 
   await yargs(hideBin(process.argv))
     .scriptName("agent")
+    .command(
+      "auth",
+      "Authenticate providers",
+      (command) =>
+        command
+          .command(
+            "codex",
+            "Authenticate Codex OAuth and save credentials in ~/.agent/auth.json",
+            (subCommand) =>
+              subCommand
+                .option("callback", {
+                  type: "string",
+                  describe: "Full OAuth callback URL"
+                })
+                .option("code", {
+                  type: "string",
+                  describe: "OAuth authorization code"
+                }),
+            async (argv) => {
+              await runCodexAuthCommand({
+                callback: argv.callback,
+                code: argv.code
+              });
+            }
+          )
+          .demandCommand(1, "Choose an auth command: `codex`.")
+          .strict()
+    )
     .command(
       "gateway",
       "Run the gateway in foreground or manage the installed service",
@@ -173,7 +244,7 @@ Definition: ${status.definitionPath}`);
         });
       }
     )
-    .demandCommand(1, "Choose `gateway`, `bootstrap`, `pair`, or `cli`.")
+    .demandCommand(1, "Choose `auth`, `gateway`, `bootstrap`, `pair`, or `cli`.")
     .strict()
     .help()
     .parseAsync();

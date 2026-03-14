@@ -3,6 +3,7 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { TranscriptionModel, type LanguageModel } from "ai";
 
 import { config, type Config } from "@/utils/config";
+import { createCodexLanguageModel, createCodexProvider } from "@/utils/codex-provider";
 
 export const mainAgentModel = createLanguageModel(config, config.agent.model);
 export const subAgentModel = createLanguageModel(config, config.subagent.model);
@@ -77,6 +78,9 @@ export function createLanguageModel(config: Config, model: string): LanguageMode
       const openrouter = createOpenRouter({ apiKey: provider.apiKey });
       return openrouter(parsedModel.modelId);
     }
+    case "codex": {
+      return createCodexLanguageModel(parsedModel.modelId);
+    }
     default:
       throw new Error(`Unsupported provider '${parsedModel.provider}'.`);
   }
@@ -94,6 +98,8 @@ export function createProviderClient(config: Config, providerName: string) {
       return createOpenAI({ apiKey: provider.apiKey });
     case "openrouter":
       return createOpenRouter({ apiKey: provider.apiKey });
+    case "codex":
+      return createCodexProvider();
     default:
       throw new Error(`Unsupported provider '${providerName}'.`);
   }

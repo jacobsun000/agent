@@ -10,7 +10,21 @@ export const CONFIG_FILE_PATH = path.join(CONFIG_PATH, "config.jsonc");
 
 const nonEmptyString = z.string().trim().min(1);
 const portSchema = z.int().min(1).max(65535);
-const providerNameSchema = z.enum(["openai", "openrouter"]);
+const providerNameSchema = z.enum(["openai", "openrouter", "codex"]);
+const providerSchema = z.discriminatedUnion("name", [
+  z.object({
+    name: z.literal("openai"),
+    apiKey: nonEmptyString
+  }),
+  z.object({
+    name: z.literal("openrouter"),
+    apiKey: nonEmptyString
+  }),
+  z.object({
+    name: z.literal("codex"),
+    apiKey: z.string().default("")
+  })
+]);
 const secondsStringSchema = z
   .string()
   .trim()
@@ -51,12 +65,7 @@ const configSchema = z.object({
     .default({
       reportSession: DEFERRED_TELEGRAM_REPORT_SESSION
     }),
-  providers: z.array(
-    z.object({
-      name: providerNameSchema,
-      apiKey: nonEmptyString
-    })
-  ),
+  providers: z.array(providerSchema),
   channels: z.object({
     http: z.object({
       enabled: z.literal(true),
