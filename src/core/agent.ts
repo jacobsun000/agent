@@ -120,7 +120,7 @@ export class Agent {
   }
 
   async compact() {
-    this.context.compact();
+    await this.context.compact();
   }
 
   private getTools(input: RunTurnInput) {

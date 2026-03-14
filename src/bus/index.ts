@@ -1,5 +1,7 @@
 import { Agent } from "@/core/agent";
+import { Statistics } from "@/core/statistics";
 import { type ChannelName, type Channel } from "@/channels/types";
+import { applyCommand, parseCommand } from "@/services/command";
 import { initializeDeferredTelegramReportSessions } from "@/utils/default-session";
 import { ensurePairingCode, isSessionPaired } from "@/utils/pairing";
 import { createLogger } from "@/utils/logger";
@@ -54,6 +56,7 @@ export type InboundMessage = {
 };
 
 const logger = createLogger("bus");
+const statistics = Statistics.getInstance();
 
 type BusConfig = {
   agent: Agent;
@@ -88,7 +91,19 @@ export class Bus {
   async dispatch(message: InboundMessage) {
     const sessionKey = `${message.channel}:${message.chatId}`;
     await this.withSessionLock(sessionKey, async () => {
-      await this.processMessage(sessionKey, message);
+      const channel = this.channels.find((entry) => entry.name === message.channel);
+      if (!channel) {
+        logger.error(`Received message for unregistered channel '${message.channel}'.`);
+        return;
+      }
+      if (!await this.checkSessionPaired(channel, sessionKey, message)) {
+        return;
+      }
+      if (await this.tryHandleCommand(channel, message)) {
+        return;
+      }
+
+      await this.processMessage(channel, sessionKey, message);
     });
   }
 
@@ -131,28 +146,39 @@ export class Bus {
     await this.dispatch(inbound);
   }
 
-  private async processMessage(sessionKey: string, message: InboundMessage) {
+  private async checkSessionPaired(channel: Channel, sessionKey: string, message: InboundMessage): Promise<boolean> {
+    let replyStream: OutboundMessageStream | undefined;
+    try {
+
+      if (isSessionPaired(sessionKey)) {
+        return true;
+      }
+      replyStream = await this.createReplyStream(channel, message);
+      const pairing = ensurePairingCode(sessionKey);
+      const pairingMessage = pairing.isNew
+        ? `This session is not paired yet.\n\nPairing code: ${pairing.code}\nApprove it locally with: ./agent pair ${pairing.code}`
+        : `This session is waiting for approval.\n\nPairing code: ${pairing.code}\nApprove it locally with: ./agent pair ${pairing.code}`;
+
+      if (replyStream) {
+        await replyStream.write(pairingMessage);
+        await replyStream.finish();
+      }
+      return false;
+    }
+    catch (error) {
+      logger.error(error);
+      if (replyStream) {
+        await replyStream.fail(`[ERROR]: ${error}`);
+      }
+      return false;
+    }
+  }
+
+  private async processMessage(channel: Channel, sessionKey: string, message: InboundMessage) {
     logger.info(`Inbound Message ${this.formatMessage(sessionKey, message.text)}`);
-    const channel = this.channels.find((c) => c.name === message.channel)!;
-
-    let replyStream: Awaited<ReturnType<Channel["createReplyStream"]>> | undefined;
-
+    let replyStream: OutboundMessageStream | undefined;
     try {
       replyStream = await this.createReplyStream(channel, message);
-
-      if (!isSessionPaired(sessionKey)) {
-        const pairing = ensurePairingCode(sessionKey);
-        const pairingMessage = pairing.isNew
-          ? `This session is not paired yet.\n\nPairing code: ${pairing.code}\nApprove it locally with: ./agent pair ${pairing.code}`
-          : `This session is waiting for approval.\n\nPairing code: ${pairing.code}\nApprove it locally with: ./agent pair ${pairing.code}`;
-
-        if (replyStream) {
-          await replyStream.write(pairingMessage);
-          await replyStream.finish();
-        }
-        return;
-      }
-
       if (message.channel === "telegram" && !message.source) {
         const initialized = await initializeDeferredTelegramReportSessions(sessionKey);
         if (initialized) {
@@ -184,6 +210,40 @@ export class Bus {
     }
   }
 
+  private async tryHandleCommand(channel: Channel, message: InboundMessage): Promise<boolean> {
+    if (message.source) {
+      return false;
+    }
+
+    const command = parseCommand(message.text);
+    if (!command) {
+      return false;
+    }
+
+    try {
+      await applyCommand({
+        command,
+        actions: {
+          clearContext: () => {
+            this.agent.clear();
+          },
+          compactContext: async () => {
+            await this.agent.compact();
+          },
+          getStatistics: () => statistics.getCurrentStatistics(),
+          dispatchResult: async (text) => {
+            await this.sendMessage(channel, message.chatId, text);
+          }
+        }
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.sendMessage(channel, message.chatId, `Command failed: ${detail}`);
+    }
+
+    return true;
+  }
+
   private async createReplyStream(channel: Channel, message: InboundMessage) {
     try {
       return await channel.createReplyStream(message.chatId);
@@ -196,6 +256,30 @@ export class Bus {
         `${message.source.type === "sub_agent" ? "Sub-agent follow-up" : "Scheduled message"} for ${message.channel}:${message.chatId} has no live reply stream; processing internally only.`
       );
       return undefined;
+    }
+  }
+
+  private async sendMessage(channel: Channel, chatId: string, text: string) {
+    let replyStream: OutboundMessageStream | undefined;
+    try {
+      replyStream = await this.createReplyStream(channel, {
+        channel: channel.name,
+        chatId: chatId,
+        text: text
+      });
+
+      if (!replyStream) {
+        return;
+      }
+
+      await replyStream.write(text);
+      await replyStream.finish();
+    } catch (error) {
+      logger.error(error);
+      if (replyStream) {
+        await replyStream.fail(`[ERROR]: ${error}`);
+      }
+      return;
     }
   }
 

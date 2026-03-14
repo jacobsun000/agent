@@ -10,14 +10,12 @@ import { InboundMessage, OutboundMessageStream, OutboundAttachment } from "@/bus
 import { AttachmentStore } from "@/services/attachment-store";
 import { createLogger } from "@/utils/logger";
 
-
 const TELEGRAM_FLUSH_INTERVAL_MS = 1000;
 const TELEGRAM_MAX_MESSAGE_CHARS = 4096;
 
 type TelegramChannelConfig = {
   token: string;
   onMessage: (message: InboundMessage) => Promise<void>;
-  onCompactSession?: (input: { chatId: string }) => Promise<string>;
   attachmentStore: AttachmentStore;
 };
 
@@ -27,13 +25,11 @@ export class TelegramChannel implements Channel {
   readonly name = "telegram" as const;
   private readonly bot: Telegraf;
   private readonly onMessage: TelegramChannelConfig["onMessage"];
-  private readonly onCompactSession?: TelegramChannelConfig["onCompactSession"];
   private readonly attachmentStore: AttachmentStore;
 
   constructor(config: TelegramChannelConfig) {
     this.bot = new Telegraf(config.token);
     this.onMessage = config.onMessage;
-    this.onCompactSession = config.onCompactSession;
     this.attachmentStore = config.attachmentStore;
     this.bot.catch(async (error, ctx) => {
       logger.error(`Unhandled Telegram update error: ${error instanceof Error ? error.message : String(error)}`);
@@ -42,25 +38,6 @@ export class TelegramChannel implements Channel {
 
     this.bot.on(message("text"), async (ctx) => {
       try {
-        if (isCompactCommand(ctx.message.text)) {
-          if (!this.onCompactSession) {
-            await ctx.reply("Compaction is not configured.");
-            return;
-          }
-
-          await ctx.reply("Compacting this session. This can take a moment...");
-          try {
-            const result = await this.onCompactSession({
-              chatId: String(ctx.chat.id)
-            });
-            await ctx.reply(result);
-          } catch (error) {
-            const detail = error instanceof Error ? error.message : String(error);
-            await ctx.reply(`Compaction failed: ${detail}`);
-          }
-          return;
-        }
-
         await this.onMessage({
           channel: this.name,
           chatId: String(ctx.chat.id),
@@ -428,9 +405,4 @@ function isTelegramMarkdownParseError(error: unknown): boolean {
   }
 
   return error.message.includes("can't parse entities");
-}
-
-function isCompactCommand(text: string): boolean {
-  const command = text.trim().split(/\s+/)[0]?.toLowerCase();
-  return command === "/compact" || command?.startsWith("/compact@") === true;
 }
