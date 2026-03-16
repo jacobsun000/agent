@@ -1,5 +1,5 @@
 import { type Bus } from "@/bus";
-import { Agent, type SubAgentRequest } from "@/core/agent";
+import { type SubAgentRequest } from "@/core/agent";
 import { getSystemPrompt } from "@/core/prompt";
 import { SubAgent } from "@/core/sub-agent";
 import { type Config } from "@/utils/config";
@@ -16,9 +16,7 @@ export function createSubAgentDispatcher(config: SubAgentDispatcherConfig) {
       model: subAgentModel,
       systemPrompt: await getSystemPrompt('sub_agent'),
     });
-    const subAgentContextId = `${request.contextId ?? `${request.channel}:${request.chatId}`}:sub-agent:${request.label}:${Date.now()}`;
     const response = await subAgent.runTurn(request.task);
-
     await config.bus.dispatchSubAgentResult({
       ...request,
       response

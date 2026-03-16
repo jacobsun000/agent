@@ -11,22 +11,15 @@ const sendFileInputSchema = z.object({
 });
 
 type SendFileToolConfig = {
-  enabled: boolean;
   onSend: (input: { path: string; caption: string }) => Promise<void>;
 };
 
 export function createSendFileTool(config: SendFileToolConfig) {
   return tool({
     title: "send_file",
-    description: config.enabled
-      ? "Send a local file to the current user as an attachment. The file path may point anywhere on the computer."
-      : "Unavailable in this context.",
+    description: "Send a local file to the current user as an attachment. The file path may point anywhere on the computer.",
     inputSchema: sendFileInputSchema,
     async execute(input) {
-      if (!config.enabled) {
-        throw new Error("The send_file tool is unavailable in this context.");
-      }
-
       const resolvedPath = path.resolve(input.path);
       await access(resolvedPath);
 

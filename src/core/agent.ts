@@ -154,7 +154,6 @@ export class Agent {
         }
       }),
       send_file: createSendFileTool({
-        enabled: !!this.onSendFile,
         onSend: async ({ path, caption }) => {
           if (!this.onSendFile) {
             throw new Error("File sending is not configured.");
