@@ -12,6 +12,7 @@ import { createLogger } from "@/utils/logger";
 
 const TELEGRAM_FLUSH_INTERVAL_MS = 1000;
 const TELEGRAM_MAX_MESSAGE_CHARS = 4096;
+const TELEGRAM_MIN_STREAM_DELTA_CHARS = 32;
 
 type TelegramChannelConfig = {
   token: string;
@@ -174,15 +175,10 @@ export class TelegramChannel implements Channel {
       void sendTypingAction();
     }, TELEGRAM_FLUSH_INTERVAL_MS);
 
-    let initialMessage;
-    try {
-      initialMessage = await this.bot.telegram.sendMessage(chatId, "...");
-    } catch (error) {
-      stopTyping();
-      throw error;
-    }
     let content = "";
-    let lastSentText = "...";
+    let pendingDeltaBuffer = "";
+    let lastSentText = "";
+    let initialMessageId: number | undefined;
     let flushTimer: NodeJS.Timeout | undefined;
     let editInFlight = Promise.resolve();
 
@@ -197,20 +193,41 @@ export class TelegramChannel implements Channel {
       }, TELEGRAM_FLUSH_INTERVAL_MS);
     };
 
+    const materializePendingDeltas = (force: boolean) => {
+      if (pendingDeltaBuffer.length === 0) {
+        return false;
+      }
+
+      if (!force && pendingDeltaBuffer.length < TELEGRAM_MIN_STREAM_DELTA_CHARS) {
+        return false;
+      }
+
+      content += pendingDeltaBuffer;
+      pendingDeltaBuffer = "";
+      return true;
+    };
+
     const flushNow = async () => {
       if (content === lastSentText) {
         return;
       }
-      await this.editInitialMessage(chatId, initialMessage.message_id, content);
+
+      if (initialMessageId === undefined) {
+        const initialMessage = await this.sendMessageWithMarkdownFallback(chatId, content);
+        initialMessageId = initialMessage.message_id;
+      } else {
+        await this.editInitialMessage(chatId, initialMessageId, content);
+      }
       lastSentText = content;
     };
 
-    const flushImmediately = async () => {
+    const flushImmediately = async (force: boolean) => {
       if (flushTimer) {
         clearTimeout(flushTimer);
         flushTimer = undefined;
       }
 
+      materializePendingDeltas(force);
       editInFlight = editInFlight.then(flushNow);
       await editInFlight;
     };
@@ -219,23 +236,25 @@ export class TelegramChannel implements Channel {
 
     return {
       async write(delta) {
-        content += delta;
+        pendingDeltaBuffer += delta;
+        materializePendingDeltas(false);
         scheduleFlush();
       },
       async finish() {
+        materializePendingDeltas(true);
         if (content.trim() === "") {
           content = "No response.";
         }
 
         try {
           try {
-            await flushImmediately();
+            await flushImmediately(true);
           } catch (error) {
             logger.error(error instanceof Error ? error.message : error);
           }
           await channel.ensureCompleteFinalDelivery({
             chatId,
-            messageId: initialMessage.message_id,
+            initialMessageId,
             content
           });
         } finally {
@@ -243,19 +262,20 @@ export class TelegramChannel implements Channel {
         }
       },
       async fail(message) {
+        materializePendingDeltas(true);
         if (content.trim() === "") {
           content = message;
         }
 
         try {
           try {
-            await flushImmediately();
+            await flushImmediately(true);
           } catch (error) {
             logger.error(error instanceof Error ? error.message : error);
           }
           await channel.ensureCompleteFinalDelivery({
             chatId,
-            messageId: initialMessage.message_id,
+            initialMessageId,
             content
           });
         } catch (error) {
@@ -302,7 +322,7 @@ export class TelegramChannel implements Channel {
 
   private async ensureCompleteFinalDelivery(input: {
     chatId: string;
-    messageId: number;
+    initialMessageId?: number;
     content: string;
   }) {
     const chunks = splitIntoTelegramChunks(input.content);
@@ -310,7 +330,11 @@ export class TelegramChannel implements Channel {
       return;
     }
 
-    await this.editInitialMessage(input.chatId, input.messageId, chunks[0]);
+    if (input.initialMessageId === undefined) {
+      await this.sendMessageWithMarkdownFallback(input.chatId, chunks[0]);
+    } else {
+      await this.editInitialMessage(input.chatId, input.initialMessageId, chunks[0]);
+    }
 
     for (const chunk of chunks.slice(1)) {
       await this.sendMessageWithMarkdownFallback(input.chatId, chunk);
@@ -342,7 +366,7 @@ export class TelegramChannel implements Channel {
     const markdown = telegramifyMarkdown(sanitizeTelegramMarkdownInput(text), "remove");
 
     try {
-      await this.bot.telegram.sendMessage(chatId, markdown, {
+      return await this.bot.telegram.sendMessage(chatId, markdown, {
         parse_mode: "MarkdownV2"
       });
     } catch (error) {
@@ -350,7 +374,7 @@ export class TelegramChannel implements Channel {
         throw error;
       }
 
-      await this.bot.telegram.sendMessage(chatId, text);
+      return await this.bot.telegram.sendMessage(chatId, text);
     }
   }
 }
