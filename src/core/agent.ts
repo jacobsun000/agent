@@ -1,4 +1,5 @@
 import { streamText, stepCountIs, type LanguageModel, type ModelMessage, experimental_transcribe, TranscriptionModel } from "ai";
+import { TavilyClient } from "@tavily/core";
 
 import { Context } from "@/core/context";
 import { InboundVoice, type InboundImage } from "@/bus";
@@ -9,6 +10,8 @@ import { createExecTool } from "@/core/tools/exec";
 import { createSendFileTool } from "@/core/tools/send-file";
 import { createSubAgentTool } from "@/core/tools/sub-agent";
 import { createCronTool, type CronToolInput } from "@/core/tools/cron";
+import { createWebSearchTool } from "@/core/tools/web-search";
+import { createWebFetchTool } from "@/core/tools/web-fetch";
 import { Statistics } from "@/core/statistics";
 
 
@@ -33,6 +36,8 @@ type AgentConfig = {
   model: LanguageModel;
   transcribeModel?: TranscriptionModel;
   maxIterations?: number;
+  tavily?: TavilyClient;
+  enableWebTools?: boolean;
   onSubAgentSpawn?: (request: SubAgentRequest) => Promise<void>;
   onCronAction?: (input: CronToolInput) => Promise<unknown>;
   onSendFile?: (input: {
@@ -57,6 +62,8 @@ export class Agent {
   private readonly transcribeModel?: TranscriptionModel;
   private readonly context: Context;
   private readonly maxIterations: number;
+  private readonly tavily?: TavilyClient;
+  private readonly enableWebTools: boolean;
   private readonly onSubAgentSpawn?: AgentConfig["onSubAgentSpawn"];
   private readonly onCronAction?: AgentConfig["onCronAction"];
   private readonly onSendFile?: AgentConfig["onSendFile"];
@@ -66,6 +73,8 @@ export class Agent {
     this.transcribeModel = config.transcribeModel;
     this.context = new Context({ systemPrompt: config.systemPrompt });
     this.maxIterations = config.maxIterations ?? 100;
+    this.tavily = config.tavily;
+    this.enableWebTools = config.enableWebTools ?? false;
     this.onSubAgentSpawn = config.onSubAgentSpawn;
     this.onCronAction = config.onCronAction;
     this.onSendFile = config.onSendFile;
@@ -124,7 +133,7 @@ export class Agent {
   }
 
   private getTools(input: RunTurnInput) {
-    return {
+    const tools = {
       exec: createExecTool(AGENT_CLI_TIMEOUT_MS),
       cron: createCronTool({
         onAction: async (cronInput) => {
@@ -172,6 +181,19 @@ export class Agent {
         }
       })
     };
+
+    if (this.enableWebTools) {
+      if (!this.tavily) {
+        throw new Error("Web tools are enabled but Tavily client is not configured.");
+      }
+      return {
+        ...tools,
+        web_search: createWebSearchTool({ tavily: this.tavily }),
+        web_fetch: createWebFetchTool({ tavily: this.tavily })
+      };
+    }
+
+    return tools;
   }
 
   private async getTranscription(voice?: InboundVoice): Promise<string> {

@@ -1,3 +1,4 @@
+import { tavily } from "@tavily/core";
 import { Bus } from "@/bus";
 import { HttpChannel } from "@/channels/http";
 import { TelegramChannel } from "@/channels/telegram";
@@ -20,6 +21,7 @@ type GatewayHandle = {
 
 export async function startGateway(): Promise<GatewayHandle> {
   const config = loadConfig();
+  const tavilyClient = tavily({ apiKey: config.web.tavilyApiKey });
   const provider = getProviderConfig(config);
   const model = createLanguageModel(config, config.agent.model);
   const attachmentStore = createAttachmentStore();
@@ -31,6 +33,8 @@ export async function startGateway(): Promise<GatewayHandle> {
     systemPrompt: mainSystemPrompt,
     transcribeModel: transcribeModel,
     model,
+    tavily: tavilyClient,
+    enableWebTools: true,
     onSubAgentSpawn: async (request) => spawnSubAgent(request),
     onCronAction: async (input) => cron.handleToolAction(input),
     onSendFile: async ({ channel, chatId, path, caption }) => {
@@ -45,7 +49,7 @@ export async function startGateway(): Promise<GatewayHandle> {
     },
   });
   bus = new Bus({ agent });
-  spawnSubAgent = createSubAgentDispatcher({ bus, config });
+  spawnSubAgent = createSubAgentDispatcher({ bus, config, tavily: tavilyClient });
   cron = new CronService({ bus, config });
   const heartbeat = new HeartbeatService({
     bus,

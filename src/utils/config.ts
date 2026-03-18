@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { CONFIG_PATH } from "@/utils/utils";
 import { DEFERRED_TELEGRAM_REPORT_SESSION, isDeferredSessionTarget } from "@/utils/session-target";
+import { tavily } from "@tavily/core";
 
 export const CONFIG_FILE_PATH = path.join(CONFIG_PATH, "config.jsonc");
 
@@ -58,6 +59,9 @@ const configSchema = z.object({
       interval: "1800",
       reportSession: DEFERRED_TELEGRAM_REPORT_SESSION
     }),
+  web: z.object({
+    tavilyApiKey: nonEmptyString
+  }),
   cron: z
     .object({
       reportSession: sessionTargetSchema
