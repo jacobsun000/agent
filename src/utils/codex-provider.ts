@@ -488,12 +488,10 @@ async function* iterateSseEvents(stream: ReadableStream<Uint8Array>): AsyncGener
 }
 
 async function requestCodex({
-  modelId,
   options,
   body,
   streamHandlers
 }: {
-  modelId: string;
   options: CodexCallOptions;
   body: Record<string, unknown>;
   streamHandlers: CodexStreamHandlers;
@@ -729,16 +727,15 @@ function createLanguageModel(modelId: string) {
       }
 
       const result = await requestCodex({
-        modelId,
         options,
         body: requestBody,
         streamHandlers: {
-          onEvent: () => {},
-          onTextDelta: () => {},
-          onToolInputStart: () => {},
-          onToolInputDelta: () => {},
-          onToolInputEnd: () => {},
-          onToolCall: () => {}
+          onEvent: () => { },
+          onTextDelta: () => { },
+          onToolInputStart: () => { },
+          onToolInputDelta: () => { },
+          onToolInputEnd: () => { },
+          onToolCall: () => { }
         }
       });
 
@@ -822,7 +819,6 @@ function createLanguageModel(modelId: string) {
 
           try {
             const result = await requestCodex({
-              modelId,
               options,
               body: requestBody,
               streamHandlers: {
