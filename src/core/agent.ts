@@ -107,9 +107,16 @@ export class Agent {
     });
 
     let assistantText = "";
-    for await (const delta of result.textStream) {
-      assistantText += delta;
-      input.onTextDelta && await input.onTextDelta(delta);
+    for await (const part of result.fullStream) {
+      switch (part.type) {
+        case "text-delta": {
+          assistantText += part.text;
+          if (input.onTextDelta) {
+            await input.onTextDelta(part.text);
+          }
+          break;
+        }
+      }
     }
     input.onTextComplete && await input.onTextComplete(assistantText);
 

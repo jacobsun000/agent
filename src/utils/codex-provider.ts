@@ -66,6 +66,10 @@ type ToolCallBuffer = {
   emittedToolInputStart: boolean;
 };
 
+function getExternalToolCallId(callId: string, itemId: string): string {
+  return `${callId}|${itemId}`;
+}
+
 type CodexStreamHandlers = {
   onEvent: (event: Record<string, unknown>) => void;
   onTextDelta: (delta: string) => void;
@@ -619,13 +623,13 @@ async function requestCodex({
       }
 
       if (!buffer.emittedToolInputStart) {
-        streamHandlers.onToolInputStart(callId, buffer.toolName);
+        streamHandlers.onToolInputStart(getExternalToolCallId(callId, buffer.itemId), buffer.toolName);
         buffer.emittedToolInputStart = true;
       }
 
       const delta = getString(event.delta) ?? "";
       buffer.argumentsText += delta;
-      streamHandlers.onToolInputDelta(callId, delta);
+      streamHandlers.onToolInputDelta(getExternalToolCallId(callId, buffer.itemId), delta);
       continue;
     }
 
@@ -663,23 +667,34 @@ async function requestCodex({
         continue;
       }
 
-      const buffer = toolCallBuffers.get(callId);
+      let buffer = toolCallBuffers.get(callId);
       if (!buffer) {
-        continue;
+        buffer = {
+          itemId: getString(typedItem.id) ?? `fc_${toolCallBuffers.size}`,
+          toolName: getString(typedItem.name) ?? "unknown_tool",
+          argumentsText: "",
+          emittedToolInputStart: false
+        };
+        toolCallBuffers.set(callId, buffer);
+      }
+
+      const itemArguments = getString(typedItem.arguments);
+      if (itemArguments !== undefined) {
+        buffer.argumentsText = itemArguments;
       }
 
       if (buffer.emittedToolInputStart) {
-        streamHandlers.onToolInputEnd(callId);
+        streamHandlers.onToolInputEnd(getExternalToolCallId(callId, buffer.itemId));
       }
 
       const input = buffer.argumentsText || "{}";
       const toolCall = {
-        toolCallId: `${callId}|${buffer.itemId}`,
+        toolCallId: getExternalToolCallId(callId, buffer.itemId),
         toolName: buffer.toolName,
         input
       };
       toolCalls.push(toolCall);
-      streamHandlers.onToolCall(callId, buffer.toolName, input);
+      streamHandlers.onToolCall(toolCall.toolCallId, buffer.toolName, input);
       continue;
     }
 
