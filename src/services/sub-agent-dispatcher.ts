@@ -4,7 +4,7 @@ import { type SubAgentRequest } from "@/core/agent";
 import { getSystemPrompt } from "@/core/prompt";
 import { SubAgent } from "@/core/sub-agent";
 import { type Config } from "@/utils/config";
-import { subAgentModel } from "@/utils/model";
+import { createLanguageModel } from "@/utils/model";
 
 type SubAgentDispatcherConfig = {
   bus: Bus;
@@ -15,7 +15,7 @@ type SubAgentDispatcherConfig = {
 export function createSubAgentDispatcher(config: SubAgentDispatcherConfig) {
   return async (request: SubAgentRequest) => {
     const subAgent = new SubAgent({
-      model: subAgentModel,
+      model: createLanguageModel(config.config, config.config.subagent.model),
       systemPrompt: await getSystemPrompt('sub_agent'),
       tavily: config.tavily
     });

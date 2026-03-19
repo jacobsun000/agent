@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { LanguageModel } from "ai";
 
 import { getCodexAuthSession } from "@/utils/codex-auth";
@@ -88,6 +88,7 @@ type CodexProviderOptions = {
   textVerbosity?: "low" | "medium" | "high";
   endpoint?: string;
   originator?: string;
+  promptCacheKey?: string;
 };
 
 function stripModelPrefix(modelId: string): string {
@@ -116,7 +117,10 @@ function getProviderOptions(value: unknown): CodexProviderOptions {
       ? options.textVerbosity
       : undefined,
     endpoint: typeof options.endpoint === "string" && options.endpoint.trim() !== "" ? options.endpoint : undefined,
-    originator: typeof options.originator === "string" && options.originator.trim() !== "" ? options.originator : undefined
+    originator: typeof options.originator === "string" && options.originator.trim() !== "" ? options.originator : undefined,
+    promptCacheKey: typeof options.promptCacheKey === "string" && options.promptCacheKey.trim() !== ""
+      ? options.promptCacheKey
+      : undefined
   };
 }
 
@@ -160,9 +164,28 @@ function parseToolCallId(value: unknown): { callId: string; itemId?: string } {
   return { callId: value };
 }
 
-function promptCacheKey(prompt: Array<Record<string, unknown>>): string {
-  const raw = JSON.stringify(prompt);
-  return createHash("sha256").update(raw).digest("hex");
+function getHeaderValue(headers: Record<string, string | undefined> | undefined, name: string): string | undefined {
+  if (!headers) {
+    return undefined;
+  }
+
+  const normalizedName = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === normalizedName && typeof value === "string" && value.trim() !== "") {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function resolvePromptCacheKey(options: CodexCallOptions, defaultPromptCacheKey: string): string {
+  const providerOptions = getProviderOptions(options.providerOptions);
+
+  return providerOptions.promptCacheKey
+    ?? getHeaderValue(options.headers, "session_id")
+    ?? getHeaderValue(options.headers, "x-client-request-id")
+    ?? defaultPromptCacheKey;
 }
 
 function convertTools(tools: Array<Record<string, unknown>> | undefined): { tools: CodexTool[]; warnings: CodexWarning[] } {
@@ -682,6 +705,8 @@ async function requestCodex({
 }
 
 function createLanguageModel(modelId: string) {
+  const defaultPromptCacheKey = randomUUID();
+
   const model = {
     specificationVersion: "v3" as const,
     provider: "codex",
@@ -701,7 +726,7 @@ function createLanguageModel(modelId: string) {
         stream: true,
         instructions: convertedPrompt.instructions,
         input: convertedPrompt.input,
-        prompt_cache_key: promptCacheKey(options.prompt),
+        prompt_cache_key: resolvePromptCacheKey(options, defaultPromptCacheKey),
         parallel_tool_calls: true
       };
 
@@ -781,7 +806,7 @@ function createLanguageModel(modelId: string) {
         stream: true,
         instructions: convertedPrompt.instructions,
         input: convertedPrompt.input,
-        prompt_cache_key: promptCacheKey(options.prompt),
+        prompt_cache_key: resolvePromptCacheKey(options, defaultPromptCacheKey),
         parallel_tool_calls: true
       };
 
