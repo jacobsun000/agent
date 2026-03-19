@@ -8,7 +8,7 @@ import { createLogger } from "@/utils/logger";
 
 export type OutboundMessageStream = {
   write(delta: string): Promise<void>;
-  finish(): Promise<void>;
+  finish(message: string): Promise<void>;
   fail(message: string): Promise<void>;
 };
 
@@ -60,15 +60,18 @@ const statistics = Statistics.getInstance();
 
 type BusConfig = {
   agent: Agent;
+  enableStream?: boolean;
 };
 
 export class Bus {
+  private readonly enableStream: boolean = false;
   private readonly agent: Agent;
   private readonly channels: Channel[] = [];
   private readonly sessionLocks = new Map<string, Promise<void>>();
 
   constructor(config: BusConfig) {
     this.agent = config.agent;
+    this.enableStream = config.enableStream ?? false;
   }
 
   registerChannel(channel: Channel) {
@@ -161,7 +164,7 @@ export class Bus {
 
       if (replyStream) {
         await replyStream.write(pairingMessage);
-        await replyStream.finish();
+        await replyStream.finish(pairingMessage);
       }
       return false;
     }
@@ -200,7 +203,7 @@ export class Bus {
       });
       logger.info(`Agent Response  ${this.formatMessage(sessionKey, response)}`);
       if (replyStream) {
-        await replyStream.finish();
+        await replyStream.finish(response);
       }
     } catch (error) {
       logger.error(error);
@@ -244,9 +247,20 @@ export class Bus {
     return true;
   }
 
-  private async createReplyStream(channel: Channel, message: InboundMessage) {
+  private async createReply(channel: Channel, message: InboundMessage) {
+
+  }
+
+  private async createReplyStream(channel: Channel, message: InboundMessage): Promise<OutboundMessageStream | undefined> {
+    if (!this.enableStream || !channel.createReplyStream) {
+      return {
+        write: async () => { },
+        finish: async (finalMessage: string) => { channel.reply(message.chatId, finalMessage); },
+        fail: async (errorMessage: string) => { channel.reply(message.chatId, errorMessage); }
+      }
+    }
     try {
-      return await channel.createReplyStream(message.chatId);
+      return await channel.createReplyStream!(message.chatId);
     } catch (error) {
       if (message.source?.type !== "sub_agent" && message.source?.type !== "scheduled") {
         throw error;
@@ -273,7 +287,7 @@ export class Bus {
       }
 
       await replyStream.write(text);
-      await replyStream.finish();
+      await replyStream.finish(text);
     } catch (error) {
       logger.error(error);
       if (replyStream) {

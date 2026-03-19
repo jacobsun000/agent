@@ -48,7 +48,7 @@ export async function startGateway(): Promise<GatewayHandle> {
       });
     },
   });
-  bus = new Bus({ agent });
+  bus = new Bus({ agent, enableStream: config.agent.enableStream });
   spawnSubAgent = createSubAgentDispatcher({ bus, config, tavily: tavilyClient });
   cron = new CronService({ bus, config });
   const heartbeat = new HeartbeatService({

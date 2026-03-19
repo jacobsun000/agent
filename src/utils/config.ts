@@ -42,7 +42,8 @@ const configSchema = z.object({
   agent: z.object({
     model: nonEmptyString,
     transcriptionModel: nonEmptyString.default("openai/gpt-4o-mini-transcribe"),
-    memoryWindow: z.int().positive().optional()
+    memoryWindow: z.int().positive().optional(),
+    enableStream: z.boolean().default(false)
   }),
   subagent: z.object({
     model: nonEmptyString,

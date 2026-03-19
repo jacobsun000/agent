@@ -21,7 +21,7 @@ const MAX_CONTEXT_WINDOW = 512000;
 const logger = createLogger("agent");
 const statistics = Statistics.getInstance();
 
-export type AgentMode = "main" | "sub_agent" | "heartbeat";
+export type AgentMode = "main" | "heartbeat";
 
 export type SubAgentRequest = {
   channel: ChannelName;
@@ -55,6 +55,7 @@ type RunTurnInput = {
   voice?: InboundVoice;
   images?: InboundImage[];
   onTextDelta?: (delta: string) => void | Promise<void>;
+  onTextComplete?: (text: string) => void | Promise<void>;
 };
 
 export class Agent {
@@ -108,10 +109,9 @@ export class Agent {
     let assistantText = "";
     for await (const delta of result.textStream) {
       assistantText += delta;
-      if (input.onTextDelta) {
-        await input.onTextDelta(delta);
-      }
+      input.onTextDelta && await input.onTextDelta(delta);
     }
+    input.onTextComplete && await input.onTextComplete(assistantText);
 
     const [response, totalUsage] = await Promise.all([result.response, result.totalUsage]);
     statistics.addLanguageModelUsage(totalUsage);

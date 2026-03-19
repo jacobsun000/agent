@@ -112,6 +112,17 @@ export class HttpChannel implements Channel {
     this.replyStreams.clear();
   }
 
+  async reply(chatId: string, message: string): Promise<void> {
+    const replyStream = this.replyStreams.get(chatId);
+
+    if (!replyStream) {
+      throw new Error(`No HTTP reply stream registered for chat ${chatId}.`);
+    }
+
+    await replyStream.write(message);
+    await replyStream.finish(message);
+  }
+
   async createReplyStream(chatId: string): Promise<OutboundMessageStream> {
     const replyStream = this.replyStreams.get(chatId);
 

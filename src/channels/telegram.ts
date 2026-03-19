@@ -152,16 +152,13 @@ export class TelegramChannel implements Channel {
     this.bot.stop();
   }
 
+  async reply(chatId: string, message: string): Promise<void> {
+    await this.sendTypingStartAction(chatId);
+    await this.sendMessageWithMarkdownFallback(chatId, message);
+  }
+
   async createReplyStream(chatId: string): Promise<OutboundMessageStream> {
     let typingIntervalId: NodeJS.Timeout | undefined;
-
-    const sendTypingAction = async () => {
-      try {
-        await this.bot.telegram.sendChatAction(chatId, "typing");
-      } catch (error) {
-        logger.error(error instanceof Error ? error.message : error);
-      }
-    };
 
     const stopTyping = () => {
       if (typingIntervalId) {
@@ -170,9 +167,9 @@ export class TelegramChannel implements Channel {
       }
     };
 
-    await sendTypingAction();
+    await this.sendTypingStartAction(chatId);
     typingIntervalId = setInterval(() => {
-      void sendTypingAction();
+      void this.sendTypingStartAction(chatId);
     }, TELEGRAM_FLUSH_INTERVAL_MS);
 
     let content = "";
@@ -293,6 +290,14 @@ export class TelegramChannel implements Channel {
       Input.fromLocalFile(attachment.path, attachment.path ?? path.basename(attachment.path)),
       attachment.caption ? { caption: attachment.caption } : undefined
     );
+  }
+
+  private async sendTypingStartAction(chatId: string): Promise<void> {
+    try {
+      await this.bot.telegram.sendChatAction(chatId, "typing");
+    } catch (error) {
+      logger.error(error instanceof Error ? error.message : error);
+    }
   }
 
   private async downloadFile(url: string): Promise<Uint8Array> {

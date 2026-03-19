@@ -7,6 +7,7 @@ export interface Channel {
   readonly name: ChannelName;
   start(): Promise<void>;
   stop(): Promise<void>;
-  createReplyStream(chatId: string): Promise<OutboundMessageStream>;
+  reply(chatId: string, message: string): Promise<void>;
+  createReplyStream?(chatId: string): Promise<OutboundMessageStream>;
   sendAttachment(chatId: string, attachment: OutboundAttachment): Promise<void>;
 }
