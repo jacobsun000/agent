@@ -308,7 +308,7 @@ function createJob(input: AddCronToolInput, createdAt: string): StoredCronJob {
     };
   }
 
-  const at = parseIsoDateTime(input.at!);
+  const at = parseAtDateTime(input.at!, input.tz);
   return {
     id,
     type: "at",
@@ -615,6 +615,16 @@ function assertValidTimeZone(value: string) {
   }
 }
 
+function parseAtDateTime(value: string, timeZone?: string): Date {
+  if (!timeZone || hasExplicitTimeZone(value)) {
+    return parseIsoDateTime(value);
+  }
+
+  assertValidTimeZone(timeZone);
+  const localDateTime = parseLocalIsoDateTime(value);
+  return resolveLocalDateTimeInTimeZone(localDateTime, timeZone);
+}
+
 function parseIsoDateTime(value: string): Date {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
@@ -636,4 +646,148 @@ function getDelayUntilNextMinute(): number {
   nextMinute.setSeconds(0, 0);
   nextMinute.setMinutes(nextMinute.getMinutes() + 1);
   return Math.max(nextMinute.getTime() - now.getTime(), 1_000);
+}
+
+type LocalDateTimeParts = {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+  millisecond: number;
+};
+
+function hasExplicitTimeZone(value: string): boolean {
+  return /(?:[zZ]|[+-]\d{2}:\d{2})$/.test(value);
+}
+
+function parseLocalIsoDateTime(value: string): LocalDateTimeParts {
+  const match = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/
+  );
+
+  if (!match) {
+    throw new Error(`Invalid local ISO datetime '${value}'. Use YYYY-MM-DDTHH:mm[:ss[.SSS]] when providing tz.`);
+  }
+
+  const parts: LocalDateTimeParts = {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    hour: Number(match[4]),
+    minute: Number(match[5]),
+    second: match[6] ? Number(match[6]) : 0,
+    millisecond: match[7] ? Number(match[7].padEnd(3, "0")) : 0
+  };
+
+  const normalized = new Date(Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+    parts.millisecond
+  ));
+
+  if (
+    normalized.getUTCFullYear() !== parts.year ||
+    normalized.getUTCMonth() + 1 !== parts.month ||
+    normalized.getUTCDate() !== parts.day ||
+    normalized.getUTCHours() !== parts.hour ||
+    normalized.getUTCMinutes() !== parts.minute ||
+    normalized.getUTCSeconds() !== parts.second ||
+    normalized.getUTCMilliseconds() !== parts.millisecond
+  ) {
+    throw new Error(`Invalid local ISO datetime '${value}'.`);
+  }
+
+  return parts;
+}
+
+function resolveLocalDateTimeInTimeZone(localDateTime: LocalDateTimeParts, timeZone: string): Date {
+  let guessMs = Date.UTC(
+    localDateTime.year,
+    localDateTime.month - 1,
+    localDateTime.day,
+    localDateTime.hour,
+    localDateTime.minute,
+    localDateTime.second,
+    localDateTime.millisecond
+  );
+
+  const targetUtcMs = guessMs;
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const actual = getDetailedTimeZoneParts(new Date(guessMs), timeZone);
+    const actualUtcMs = Date.UTC(
+      actual.year,
+      actual.month - 1,
+      actual.day,
+      actual.hour,
+      actual.minute,
+      actual.second,
+      actual.millisecond
+    );
+    const diffMs = targetUtcMs - actualUtcMs;
+    if (diffMs === 0) {
+      const resolved = new Date(guessMs);
+      const resolvedParts = getDetailedTimeZoneParts(resolved, timeZone);
+      if (matchesLocalDateTime(resolvedParts, localDateTime)) {
+        return resolved;
+      }
+      break;
+    }
+    guessMs += diffMs;
+  }
+
+  throw new Error(`Local datetime '${formatLocalDateTime(localDateTime)}' does not map cleanly in timezone '${timeZone}'.`);
+}
+
+function getDetailedTimeZoneParts(date: Date, timeZone: string): LocalDateTimeParts {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    fractionalSecondDigits: 3,
+    hourCycle: "h23"
+  });
+  const parts = formatter.formatToParts(date);
+  const lookup = new Map(parts.map((part) => [part.type, part.value]));
+
+  return {
+    year: Number(lookup.get("year")),
+    month: Number(lookup.get("month")),
+    day: Number(lookup.get("day")),
+    hour: Number(lookup.get("hour")),
+    minute: Number(lookup.get("minute")),
+    second: Number(lookup.get("second")),
+    millisecond: Number(lookup.get("fractionalSecond") ?? "0")
+  };
+}
+
+function matchesLocalDateTime(left: LocalDateTimeParts, right: LocalDateTimeParts): boolean {
+  return left.year === right.year
+    && left.month === right.month
+    && left.day === right.day
+    && left.hour === right.hour
+    && left.minute === right.minute
+    && left.second === right.second
+    && left.millisecond === right.millisecond;
+}
+
+function formatLocalDateTime(value: LocalDateTimeParts): string {
+  const year = String(value.year).padStart(4, "0");
+  const month = String(value.month).padStart(2, "0");
+  const day = String(value.day).padStart(2, "0");
+  const hour = String(value.hour).padStart(2, "0");
+  const minute = String(value.minute).padStart(2, "0");
+  const second = String(value.second).padStart(2, "0");
+  const millisecond = String(value.millisecond).padStart(3, "0");
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}.${millisecond}`;
 }

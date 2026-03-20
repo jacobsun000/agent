@@ -2,15 +2,37 @@ import { tool } from "ai";
 import { z } from "zod";
 
 const cronActionSchema = z.enum(["add", "list", "remove"]);
+const DEFAULT_AT_SENTINEL = "1970-01-01T00:00:00Z";
 
-export const cronInputSchema = z.object({
-  action: cronActionSchema,
-  message: z.string().trim().optional(),
-  every_seconds: z.int().positive().optional(),
-  cron_expr: z.string().trim().optional(),
-  tz: z.string().trim().optional(),
-  at: z.string().trim().optional(),
-  job_id: z.string().trim().optional()
+function normalizeCronInput(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  const input = { ...value } as Record<string, unknown>;
+  for (const key of ["message", "cron_expr", "tz", "at", "job_id"]) {
+    const raw = input[key];
+    if (typeof raw === "string") {
+      const trimmed = raw.trim();
+      input[key] = trimmed === "" ? undefined : trimmed;
+    }
+  }
+
+  if (input.at === DEFAULT_AT_SENTINEL) {
+    input.at = undefined;
+  }
+
+  return input;
+}
+
+export const cronInputSchema = z.preprocess(normalizeCronInput, z.object({
+  action: cronActionSchema.describe("Operation to perform: add, list, or remove."),
+  message: z.string().trim().optional().describe("Message to send when an added job triggers."),
+  every_seconds: z.int().positive().optional().describe("Repeat every N seconds. Use only for add."),
+  cron_expr: z.string().trim().optional().describe("5-field cron expression for wall-clock schedules. Use only for add."),
+  tz: z.string().trim().optional().describe("IANA timezone like 'UTC' or 'America/Chicago'. Required with cron_expr, optional with at."),
+  at: z.string().trim().optional().describe("One-time datetime. Can be absolute like '2026-03-19T20:30:00Z' or local when used with tz."),
+  job_id: z.string().trim().optional().describe("Job id to remove. Use only for remove.")
 }).superRefine((value, context) => {
   if (value.action === "list") {
     return;
@@ -52,14 +74,14 @@ export const cronInputSchema = z.object({
     });
   }
 
-  if (!value.cron_expr && value.tz) {
+  if (value.tz && !value.cron_expr && !value.at) {
     context.addIssue({
       code: "custom",
       path: ["tz"],
-      message: "tz is only valid with cron_expr."
+      message: "tz is only valid with cron_expr or at."
     });
   }
-});
+}));
 
 export type CronToolInput = z.infer<typeof cronInputSchema>;
 
@@ -70,7 +92,7 @@ type CronToolConfig = {
 export function createCronTool(config: CronToolConfig) {
   return tool({
     title: "cron",
-    description: "Manage scheduled jobs persisted in <workspace>/crons.json. Use add for precise schedules or reminders, list to inspect jobs, and remove to delete a job.",
+    description: "Manage scheduled jobs in <workspace>/crons.json. Add a job with exactly one schedule mode: every_seconds, cron_expr, or at. List jobs with action='list', or delete one with action='remove' and job_id.",
     inputSchema: cronInputSchema,
     async execute(input) {
       return config.onAction(input);
