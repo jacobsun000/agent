@@ -9,7 +9,7 @@ import { HeartbeatService } from "@/services/heartbeat";
 import { createSubAgentDispatcher } from "@/services/sub-agent-dispatcher";
 import { createLogger } from "@/utils/logger";
 import { getProviderConfig, loadConfig } from "@/utils/config";
-import { createLanguageModel, transcribeModel } from "@/utils/model";
+import { createLanguageModel, getTranscribeModel } from "@/utils/model";
 import { getSystemPrompt } from "@/core/prompt";
 
 const logger = createLogger("gateway");
@@ -31,7 +31,7 @@ export async function startGateway(): Promise<GatewayHandle> {
   let spawnSubAgent!: ReturnType<typeof createSubAgentDispatcher>;
   const agent = new Agent({
     systemPrompt: mainSystemPrompt,
-    transcribeModel: transcribeModel,
+    transcribeModel: getTranscribeModel(),
     model,
     tavily: tavilyClient,
     enableWebTools: true,

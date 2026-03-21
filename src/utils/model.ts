@@ -2,13 +2,28 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { TranscriptionModel, type LanguageModel } from "ai";
 
-import { config, type Config } from "@/utils/config";
+import { loadConfig, type Config } from "@/utils/config";
 import { createCodexLanguageModel, createCodexProvider } from "@/utils/codex-provider";
 
-export const mainAgentModel = createLanguageModel(config, config.agent.model);
-export const subAgentModel = createLanguageModel(config, config.subagent.model);
-export const summaryAgentModel = createLanguageModel(config, config.agent.model);
-export const transcribeModel = createTranscribeModel(config, config.agent.transcriptionModel);
+export function getMainAgentModel(): LanguageModel {
+  const config = loadConfig();
+  return createLanguageModel(config, config.agent.model);
+}
+
+export function getSubAgentModel(): LanguageModel {
+  const config = loadConfig();
+  return createLanguageModel(config, config.subagent.model);
+}
+
+export function getSummaryAgentModel(): LanguageModel {
+  const config = loadConfig();
+  return createLanguageModel(config, config.agent.model);
+}
+
+export function getTranscribeModel(): TranscriptionModel {
+  const config = loadConfig();
+  return createTranscribeModel(config, config.agent.transcriptionModel);
+}
 
 export type ParsedModel = {
   provider: string;

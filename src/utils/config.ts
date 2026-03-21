@@ -227,5 +227,3 @@ export function loadConfig(): Config {
 
   return result.data;
 }
-
-export const config = loadConfig();

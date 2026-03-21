@@ -5,7 +5,7 @@ import { generateText, type ModelMessage } from "ai";
 import { compactContext } from "@/core/compact";
 import { WORKSPACE_PATH } from "@/utils/utils";
 import { formatDateParts, serializeMessage } from "@/utils/searializer";
-import { summaryAgentModel } from "@/utils/model";
+import { getSummaryAgentModel } from "@/utils/model";
 
 const HISTORY_PATH = path.join(WORKSPACE_PATH, "memory", "history");
 
@@ -37,7 +37,7 @@ export class Context {
 
   async getSummary(lastN: number): Promise<string> {
     const result = await generateText({
-      model: summaryAgentModel,
+      model: getSummaryAgentModel(),
       system: "Briefly summarize the following conversation, focusing on key details and information that would be important for understanding the context. Be concise but informative.",
       messages: this.messages.slice(-lastN)
     });
