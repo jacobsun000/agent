@@ -357,3 +357,13 @@ export async function readGatewayServiceDefinition(): Promise<string | null> {
 
   return readFile(definitionPath, "utf8");
 }
+
+export async function restartInstalledGatewayService(): Promise<boolean> {
+  const status = await getGatewayServiceStatus();
+  if (!status.installed) {
+    return false;
+  }
+
+  await restartGatewayService();
+  return true;
+}

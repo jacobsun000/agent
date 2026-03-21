@@ -18,11 +18,13 @@ import { approvePairingCode } from "@/utils/pairing";
 import {
   getGatewayServiceStatus,
   installGatewayService,
+  restartInstalledGatewayService,
   restartGatewayService,
   startGatewayService,
   stopGatewayService,
   uninstallGatewayService
 } from "@/utils/service";
+import { applyGatewayUpdate, checkGatewayUpdate } from "@/utils/update";
 
 const logger = createLogger("main");
 
@@ -86,6 +88,50 @@ async function runGatewayForeground(): Promise<void> {
     await gateway.waitUntilStopped();
   } finally {
     await shutdown();
+  }
+}
+
+async function runUpdateCommand(options: {
+  checkOnly: boolean;
+  remote?: string;
+  branch?: string;
+  repoRoot?: string;
+  restart: boolean;
+  installDependencies?: boolean;
+}): Promise<void> {
+  const config = loadConfig();
+  const repoRoot = options.repoRoot ?? config.updater.repoRoot ?? process.cwd();
+  const installDependencies = options.installDependencies ?? config.updater.installDependencies;
+  const result = options.checkOnly
+    ? await checkGatewayUpdate({
+        repoRoot,
+        remote: options.remote ?? config.updater.remote,
+        branch: options.branch ?? config.updater.branch,
+        installDependencies
+      })
+    : await applyGatewayUpdate({
+        repoRoot,
+        remote: options.remote ?? config.updater.remote,
+        branch: options.branch ?? config.updater.branch,
+        installDependencies
+      });
+
+  logger.box(`Gateway Update
+Status: ${result.status}
+Repo: ${result.repoRoot}
+Remote: ${result.remote}
+Branch: ${result.branch}
+Current: ${result.currentCommit}
+Target: ${result.targetCommit}
+Summary: ${result.summary}`);
+
+  if (!options.checkOnly && result.applied && options.restart) {
+    const restarted = await restartInstalledGatewayService();
+    if (restarted) {
+      logger.info("Restarted installed gateway service.");
+    } else {
+      logger.warn("Update applied, but no installed gateway service was found to restart.");
+    }
   }
 }
 
@@ -198,6 +244,49 @@ Definition: ${status.definitionPath}`);
           .strict()
     )
     .command(
+      "update",
+      "Check for updates, pull from git, and optionally restart the installed gateway service",
+      (command) =>
+        command
+          .option("check-only", {
+            type: "boolean",
+            default: false,
+            describe: "Only check whether an update is available"
+          })
+          .option("remote", {
+            type: "string",
+            describe: "Git remote to fetch from"
+          })
+          .option("branch", {
+            type: "string",
+            describe: "Branch to update from"
+          })
+          .option("repo-root", {
+            type: "string",
+            describe: "Repository root to update"
+          })
+          .option("restart", {
+            type: "boolean",
+            default: true,
+            describe: "Restart the installed gateway service after a successful update"
+          })
+          .option("install-dependencies", {
+            type: "boolean",
+            default: undefined,
+            describe: "Run `pnpm install --frozen-lockfile` when package manifests changed"
+          }),
+      async (argv) => {
+        await runUpdateCommand({
+          checkOnly: argv.checkOnly,
+          remote: argv.remote,
+          branch: argv.branch,
+          repoRoot: argv.repoRoot,
+          restart: argv.restart,
+          installDependencies: argv.installDependencies
+        });
+      }
+    )
+    .command(
       "bootstrap",
       "Interactively initialize ~/.agent/config.jsonc",
       () => {},
@@ -244,7 +333,7 @@ Definition: ${status.definitionPath}`);
         });
       }
     )
-    .demandCommand(1, "Choose `auth`, `gateway`, `bootstrap`, `pair`, or `cli`.")
+    .demandCommand(1, "Choose `auth`, `gateway`, `update`, `bootstrap`, `pair`, or `cli`.")
     .strict()
     .help()
     .parseAsync();

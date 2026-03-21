@@ -7,6 +7,7 @@ import { createAttachmentStore } from "@/services/attachment-store";
 import { CronService } from "@/services/cron";
 import { HeartbeatService } from "@/services/heartbeat";
 import { createSubAgentDispatcher } from "@/services/sub-agent-dispatcher";
+import { UpdaterService } from "@/services/updater";
 import { createLogger } from "@/utils/logger";
 import { getProviderConfig, loadConfig } from "@/utils/config";
 import { createLanguageModel, getTranscribeModel } from "@/utils/model";
@@ -51,6 +52,7 @@ export async function startGateway(): Promise<GatewayHandle> {
   bus = new Bus({ agent, enableStream: config.agent.enableStream });
   spawnSubAgent = createSubAgentDispatcher({ bus, config, tavily: tavilyClient });
   cron = new CronService({ bus, config });
+  const updater = new UpdaterService({ config });
   const heartbeat = new HeartbeatService({
     bus,
     config,
@@ -83,6 +85,7 @@ export async function startGateway(): Promise<GatewayHandle> {
 
   await bus.start();
   cron.start();
+  updater.start();
   heartbeat.start();
 
   logger.box(`Agent Gateway
@@ -103,6 +106,7 @@ Model: ${config.agent.model}`);
     stopPromise = (async () => {
       try {
         await cron.stop();
+        await updater.stop();
         await heartbeat.stop();
         await bus.stop();
       } finally {

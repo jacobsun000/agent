@@ -17,6 +17,17 @@
   "cron": {
     "reportSession": "telegram:__AGENT_DEFAULT_SESSION_UNINITIALIZED__"
   },
+  "updater": {
+    "enabled": false,
+    "interval": "300",
+    "remote": "origin",
+    // Optional if you want a branch other than the current checked out branch.
+    // "branch": "main",
+    "installDependencies": true,
+    "restartOnUpdate": true
+    // Optional if the gateway runs with a different working directory.
+    // "repoRoot": "/absolute/path/to/agent"
+  },
   "web": {
     "tavilyApiKey": "tvly-dev-..."
   },

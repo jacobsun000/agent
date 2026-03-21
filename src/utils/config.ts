@@ -5,13 +5,11 @@ import path from "node:path";
 
 import { CONFIG_PATH } from "@/utils/utils";
 import { DEFERRED_TELEGRAM_REPORT_SESSION, isDeferredSessionTarget } from "@/utils/session-target";
-import { tavily } from "@tavily/core";
 
 export const CONFIG_FILE_PATH = path.join(CONFIG_PATH, "config.jsonc");
 
 const nonEmptyString = z.string().trim().min(1);
 const portSchema = z.int().min(1).max(65535);
-const providerNameSchema = z.enum(["openai", "openrouter", "codex"]);
 const providerSchema = z.discriminatedUnion("name", [
   z.object({
     name: z.literal("openai"),
@@ -69,6 +67,23 @@ const configSchema = z.object({
     })
     .default({
       reportSession: DEFERRED_TELEGRAM_REPORT_SESSION
+    }),
+  updater: z
+    .object({
+      enabled: z.boolean().default(false),
+      interval: secondsStringSchema.default("300"),
+      remote: nonEmptyString.default("origin"),
+      branch: nonEmptyString.optional(),
+      installDependencies: z.boolean().default(true),
+      restartOnUpdate: z.boolean().default(true),
+      repoRoot: nonEmptyString.optional()
+    })
+    .default({
+      enabled: false,
+      interval: "300",
+      remote: "origin",
+      installDependencies: true,
+      restartOnUpdate: true
     }),
   providers: z.array(providerSchema),
   channels: z.object({
