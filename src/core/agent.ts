@@ -12,6 +12,7 @@ import { createSubAgentTool } from "@/core/tools/sub-agent";
 import { createCronTool, type CronToolInput } from "@/core/tools/cron";
 import { createWebSearchTool } from "@/core/tools/web-search";
 import { createWebFetchTool } from "@/core/tools/web-fetch";
+import { createReadImageTool } from "@/core/tools/read-image";
 import { Statistics } from "@/core/statistics";
 
 
@@ -186,7 +187,8 @@ export class Agent {
             caption
           });
         }
-      })
+      }),
+      read_image: createReadImageTool()
     };
 
     if (this.enableWebTools) {

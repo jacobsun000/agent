@@ -6,6 +6,7 @@ import { createExecTool } from "@/core/tools/exec";
 import { createWebFetchTool } from "@/core/tools/web-fetch";
 import { createWebSearchTool } from "@/core/tools/web-search";
 import { Statistics } from "@/core/statistics";
+import { createReadImageTool } from "./tools/read-image";
 
 const SUB_AGENT_CLI_TIMEOUT_MS = 60 * 60 * 1_000; // 1 hour
 const MAX_CONTEXT_WINDOW = 512000;
@@ -43,7 +44,8 @@ export class SubAgent {
       tools: {
         exec: createExecTool(SUB_AGENT_CLI_TIMEOUT_MS),
         web_search: createWebSearchTool({ tavily: this.tavily }),
-        web_fetch: createWebFetchTool({ tavily: this.tavily })
+        web_fetch: createWebFetchTool({ tavily: this.tavily }),
+        read_image: createReadImageTool()
       },
       stopWhen: stepCountIs(this.maxIterations),
     });

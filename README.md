@@ -9,7 +9,7 @@ This repository runs a provider-backed agent as a long-lived local service. It p
 - **HTTP channel** for local apps to send messages and receive streamed replies
 - **Telegram channel** for chatting with the agent through a bot
 - **Session and pairing flow** keyed by channel + chat ID
-- **Built-in tools** such as shell execution, sub-agents, cron jobs, and file sending
+- **Built-in tools** such as shell execution, sub-agents, cron jobs, file sending, and local image read
 - **Supporting services** for heartbeat reports, scheduling, transcription, and attachment storage
 - **Workspace bootstrapping** under `~/.agent/` for config, memory, heartbeat, and cron data
 
@@ -126,6 +126,7 @@ agent gateway stop
 agent gateway restart
 agent gateway uninstall
 agent gateway status
+agent update
 agent bootstrap
 agent pair <code>
 agent cli --url http://127.0.0.1:8100
@@ -136,8 +137,40 @@ Notes:
 - `gateway run`: run the gateway in the foreground
 - `bootstrap`: interactively write `~/.agent/config.jsonc`
 - `gateway install/start/stop/...`: manage the installed user service
+- `update`: fetch from git, fast-forward pull when available, optionally refresh dependencies, and restart the installed gateway service
 - `pair <code>`: approve a pending pairing code
 - `cli`: open a local CLI session that talks to the HTTP gateway
+
+### Auto-update
+
+The gateway can auto-check for updates from Git and restart the installed service after a successful fast-forward pull.
+
+Set this in `~/.agent/config.jsonc`:
+
+```jsonc
+"updater": {
+  "enabled": true,
+  "interval": "300",
+  "remote": "origin",
+  "branch": "main",
+  "installDependencies": true,
+  "restartOnUpdate": true
+}
+```
+
+Notes:
+
+- updates are skipped if the repo worktree is dirty
+- only fast-forward updates are applied
+- if `package.json` or `pnpm-lock.yaml` changed, the updater runs `pnpm install --frozen-lockfile`
+- automatic restart only applies to the installed gateway service
+
+Manual update commands:
+
+```bash
+agent update --check-only
+agent update
+```
 
 ## Runtime flow
 
