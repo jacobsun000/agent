@@ -144,6 +144,109 @@ function toJsonString(value: unknown): string {
   }
 }
 
+function toBase64(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (value instanceof Uint8Array) {
+    return Buffer.from(value).toString("base64");
+  }
+
+  if (ArrayBuffer.isView(value)) {
+    return Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString("base64");
+  }
+
+  if (value instanceof ArrayBuffer) {
+    return Buffer.from(value).toString("base64");
+  }
+
+  return undefined;
+}
+
+function toImageUrl(value: unknown, mediaType: string): string | undefined {
+  if (typeof value === "string") {
+    if (/^https?:\/\//i.test(value) || /^data:/i.test(value)) {
+      return value;
+    }
+
+    if (mediaType.startsWith("image/")) {
+      return `data:${mediaType};base64,${value}`;
+    }
+
+    return undefined;
+  }
+
+  if (!mediaType.startsWith("image/")) {
+    return undefined;
+  }
+
+  const base64 = toBase64(value);
+  if (!base64) {
+    return undefined;
+  }
+
+  return `data:${mediaType};base64,${base64}`;
+}
+
+function convertToolResultOutput(output: unknown): string | Array<Record<string, unknown>> {
+  if (!output || typeof output !== "object" || Array.isArray(output)) {
+    return toJsonString(output);
+  }
+
+  const typedOutput = output as Record<string, unknown>;
+  const outputType = getString(typedOutput.type);
+
+  if (outputType === "text" || outputType === "error-text") {
+    return getString(typedOutput.value) ?? "";
+  }
+
+  if (outputType === "json" || outputType === "error-json") {
+    return toJsonString(typedOutput.value);
+  }
+
+  if (outputType !== "content") {
+    return toJsonString(output);
+  }
+
+  const parts = Array.isArray(typedOutput.value) ? typedOutput.value : [];
+  const converted: Array<Record<string, unknown>> = [];
+
+  for (const partValue of parts) {
+    if (!partValue || typeof partValue !== "object" || Array.isArray(partValue)) {
+      continue;
+    }
+
+    const part = partValue as Record<string, unknown>;
+    const partType = getString(part.type);
+
+    if (partType === "text") {
+      converted.push({
+        type: "input_text",
+        text: getString(part.text) ?? ""
+      });
+      continue;
+    }
+
+    const mediaType = getString(part.mediaType) ?? "";
+    if (partType === "image-data" || partType === "image-url" || partType === "media" || partType === "file-data") {
+      const rawValue = partType === "image-url"
+        ? part.url
+        : part.data;
+      const imageUrl = toImageUrl(rawValue, mediaType);
+
+      if (imageUrl) {
+        converted.push({
+          type: "input_image",
+          image_url: imageUrl
+        });
+      }
+    }
+  }
+
+  return converted.length > 0 ? converted : toJsonString(output);
+}
+
 function toHeadersObject(headers: Headers): Record<string, string> {
   const result: Record<string, string> = {};
   headers.forEach((value, key) => {
@@ -256,10 +359,11 @@ function convertUserMessage(message: Record<string, unknown>): CodexInputItem {
       const mediaType = getString(part.mediaType) ?? "";
       const data = part.data;
 
-      if (typeof data === "string" && /^https?:\/\//i.test(data) && mediaType.startsWith("image/")) {
+      const imageUrl = toImageUrl(data, mediaType);
+      if (imageUrl) {
         converted.push({
           type: "input_image",
-          image_url: data,
+          image_url: imageUrl,
           detail: "auto"
         });
         continue;
@@ -269,6 +373,19 @@ function convertUserMessage(message: Record<string, unknown>): CodexInputItem {
         converted.push({
           type: "input_text",
           text: `[File URL: ${data}]`
+        });
+      }
+    }
+
+    if (part.type === "image") {
+      const mediaType = getString(part.mediaType) ?? "";
+      const imageUrl = toImageUrl(part.image, mediaType);
+
+      if (imageUrl) {
+        converted.push({
+          type: "input_image",
+          image_url: imageUrl,
+          detail: "auto"
         });
       }
     }
@@ -343,7 +460,7 @@ function convertPrompt(prompt: Array<Record<string, unknown>>): { instructions: 
             input.push({
               type: "function_call_output",
               call_id: parsedToolCallId.callId,
-              output: toJsonString(part.output)
+              output: convertToolResultOutput(part.output)
             });
           }
         }
@@ -388,7 +505,7 @@ function convertPrompt(prompt: Array<Record<string, unknown>>): { instructions: 
         input.push({
           type: "function_call_output",
           call_id: parsedToolCallId.callId,
-          output: toJsonString(part.output)
+          output: convertToolResultOutput(part.output)
         });
       }
     }

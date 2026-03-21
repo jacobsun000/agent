@@ -25,7 +25,7 @@ export function createReadImageTool() {
       const mediaType = getImageMediaType(resolvedPath);
       const image = await readFile(resolvedPath);
       return {
-        type: 'image-data',
+        type: 'media',
         data: image.toString('base64'),
         mediaType,
       };
@@ -35,7 +35,7 @@ export function createReadImageTool() {
     toModelOutput({ output }) {
       return {
         type: 'content',
-        value: [{ type: 'image-data', data: output.data, mediaType: output.mediaType }],
+        value: [{ type: 'media', data: output.data, mediaType: output.mediaType }],
       };
     },
   });
