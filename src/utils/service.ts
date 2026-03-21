@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -162,7 +162,7 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=${quoteSystemdArgument(repoRoot)}
+WorkingDirectory=${repoRoot}
 ExecStart=${execStart}
 Restart=on-failure
 RestartSec=3
