@@ -4,7 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 
 import { type Bus } from "@/bus";
-import { type CronToolInput } from "@/core/tools/cron";
+import { cronInputSchema, type CronToolInput } from "@/core/tools/cron";
 import { type Config } from "@/utils/config";
 import { getConfiguredReportSession, loadConfiguredReportSession } from "@/utils/default-session";
 import { createLogger } from "@/utils/logger";
@@ -107,18 +107,20 @@ export class CronService {
   }
 
   async handleToolAction(input: CronToolInput) {
+    const normalizedInput = cronInputSchema.parse(input);
+
     return this.withStoreLock(async () => {
       const store = await this.loadStore();
 
-      switch (input.action) {
+      switch (normalizedInput.action) {
         case "list":
           return {
             jobs: store.jobs.map((job) => describeJob(job))
           };
         case "remove": {
-          const jobIndex = store.jobs.findIndex((job) => job.id === input.job_id);
+          const jobIndex = store.jobs.findIndex((job) => job.id === normalizedInput.job_id);
           if (jobIndex === -1) {
-            throw new Error(`No cron job with id '${input.job_id}'.`);
+            throw new Error(`No cron job with id '${normalizedInput.job_id}'.`);
           }
 
           const [removedJob] = store.jobs.splice(jobIndex, 1);
@@ -131,11 +133,11 @@ export class CronService {
           const createdAt = new Date().toISOString();
           const job = createJob({
             action: "add",
-            message: input.message!,
-            every_seconds: input.every_seconds,
-            cron_expr: input.cron_expr,
-            tz: input.tz,
-            at: input.at
+            message: normalizedInput.message!,
+            every_seconds: normalizedInput.every_seconds,
+            cron_expr: normalizedInput.cron_expr,
+            tz: normalizedInput.tz,
+            at: normalizedInput.at
           }, createdAt);
           store.jobs.push(job);
           await this.saveStore(store);

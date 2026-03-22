@@ -3,6 +3,23 @@ import { z } from "zod";
 
 const cronActionSchema = z.enum(["add", "list", "remove"]);
 
+function normalizeOptionalCronString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return value as string | undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
+function hasCronScheduleValue(value: unknown): boolean {
+  if (typeof value === "number") {
+    return true;
+  }
+
+  return normalizeOptionalCronString(value) !== undefined;
+}
+
 export function normalizeCronInput(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return value;
@@ -10,11 +27,7 @@ export function normalizeCronInput(value: unknown): unknown {
 
   const input = { ...value } as Record<string, unknown>;
   for (const key of ["message", "cron_expr", "tz", "at", "job_id"]) {
-    const raw = input[key];
-    if (typeof raw === "string") {
-      const trimmed = raw.trim();
-      input[key] = trimmed === "" ? undefined : trimmed;
-    }
+    input[key] = normalizeOptionalCronString(input[key]);
   }
 
   return input;
@@ -52,7 +65,7 @@ export const cronInputSchema = z.preprocess(normalizeCronInput, z.object({
     });
   }
 
-  const scheduleFields = [value.every_seconds, value.cron_expr, value.at].filter((entry) => entry !== undefined);
+  const scheduleFields = [value.every_seconds, value.cron_expr, value.at].filter(hasCronScheduleValue);
   if (scheduleFields.length !== 1) {
     context.addIssue({
       code: "custom",
