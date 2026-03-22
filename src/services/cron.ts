@@ -615,7 +615,7 @@ function assertValidTimeZone(value: string) {
   }
 }
 
-function parseAtDateTime(value: string, timeZone?: string): Date {
+export function parseAtDateTime(value: string, timeZone?: string): Date {
   if (!timeZone || hasExplicitTimeZone(value)) {
     return parseIsoDateTime(value);
   }

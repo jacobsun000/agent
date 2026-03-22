@@ -2,9 +2,8 @@ import { tool } from "ai";
 import { z } from "zod";
 
 const cronActionSchema = z.enum(["add", "list", "remove"]);
-const DEFAULT_AT_SENTINEL = "1970-01-01T00:00:00Z";
 
-function normalizeCronInput(value: unknown): unknown {
+export function normalizeCronInput(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return value;
   }
@@ -16,10 +15,6 @@ function normalizeCronInput(value: unknown): unknown {
       const trimmed = raw.trim();
       input[key] = trimmed === "" ? undefined : trimmed;
     }
-  }
-
-  if (input.at === DEFAULT_AT_SENTINEL) {
-    input.at = undefined;
   }
 
   return input;

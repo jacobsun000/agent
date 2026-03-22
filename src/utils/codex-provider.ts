@@ -66,6 +66,10 @@ type ToolCallBuffer = {
   emittedToolInputStart: boolean;
 };
 
+type JsonSchemaCapable = {
+  toJSONSchema?: () => unknown;
+};
+
 function getExternalToolCallId(callId: string, itemId: string): string {
   return `${callId}|${itemId}`;
 }
@@ -295,6 +299,24 @@ function resolvePromptCacheKey(options: CodexCallOptions, defaultPromptCacheKey:
     ?? defaultPromptCacheKey;
 }
 
+export function serializeToolInputSchema(inputSchema: unknown): Record<string, unknown> {
+  if (!inputSchema || typeof inputSchema !== "object" || Array.isArray(inputSchema)) {
+    return {};
+  }
+
+  const schema = inputSchema as JsonSchemaCapable;
+  if (typeof schema.toJSONSchema === "function") {
+    const converted = schema.toJSONSchema();
+    if (converted && typeof converted === "object" && !Array.isArray(converted)) {
+      return converted as Record<string, unknown>;
+    }
+
+    return {};
+  }
+
+  return inputSchema as Record<string, unknown>;
+}
+
 function convertTools(tools: Array<Record<string, unknown>> | undefined): { tools: CodexTool[]; warnings: CodexWarning[] } {
   if (!tools || tools.length === 0) {
     return { tools: [], warnings: [] };
@@ -322,7 +344,7 @@ function convertTools(tools: Array<Record<string, unknown>> | undefined): { tool
       type: "function",
       name,
       description: getString(tool.description) ?? "",
-      parameters: (tool.inputSchema as Record<string, unknown>) ?? {}
+      parameters: serializeToolInputSchema(tool.inputSchema)
     });
   }
 
