@@ -54,7 +54,7 @@ export class SubAgent {
     const assistantText = result.text;
     const inputTokens = result.totalUsage.inputTokens || 0;
     if (inputTokens > MAX_CONTEXT_WINDOW) {
-      this.context.compact();
+      await this.context.compact();
     }
     return assistantText;
   }
