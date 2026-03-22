@@ -25,6 +25,7 @@ import {
   uninstallGatewayService
 } from "@/utils/service";
 import { applyGatewayUpdate, checkGatewayUpdate } from "@/utils/update";
+import { guiService } from "@/services/gui";
 
 const logger = createLogger("main");
 
@@ -244,6 +245,138 @@ Definition: ${status.definitionPath}`);
           .strict()
     )
     .command(
+      "gui",
+      "Manage headless GUI sessions backed by Xvfb",
+      (command) =>
+        command
+          .command(
+            "doctor",
+            "Check GUI runtime dependencies",
+            () => {},
+            async () => {
+              const result = await guiService.doctor();
+              logger.box(`GUI Doctor
+OK: ${result.ok ? "yes" : "no"}
+Root: ${result.guiRoot}
+Xvfb: ${result.dependencies.Xvfb ? "yes" : "no"}
+xdotool: ${result.dependencies.xdotool ? "yes" : "no"}
+import: ${result.dependencies.import ? "yes" : "no"}
+xrandr: ${result.dependencies.xrandr ? "yes" : "no"}`);
+            }
+          )
+          .command(
+            "start",
+            "Start a GUI session",
+            (subCommand) =>
+              subCommand
+                .option("id", { type: "string", describe: "Session ID", default: "default" })
+                .option("width", { type: "number", describe: "Display width", default: 1280 })
+                .option("height", { type: "number", describe: "Display height", default: 800 })
+                .option("depth", { type: "number", describe: "Color depth", default: 24 })
+                .option("command", { type: "string", describe: "Optional command to launch inside the session" }),
+            async (argv) => {
+              const session = await guiService.startSession({
+                id: argv.id,
+                width: argv.width,
+                height: argv.height,
+                depth: argv.depth,
+                command: argv.command
+              });
+              logger.box(`GUI Session
+ID: ${session.id}
+Active: ${session.active ? "yes" : "no"}
+Display: ${session.display}
+Size: ${session.width}x${session.height}x${session.depth}
+PID: ${session.pid}
+Started: ${session.startedAt}`);
+            }
+          )
+          .command(
+            "stop",
+            "Stop a GUI session",
+            (subCommand) =>
+              subCommand.option("id", { type: "string", describe: "Session ID", default: "default" }),
+            async (argv) => {
+              const result = await guiService.stopSession(argv.id);
+              logger.info(result.stopped ? `Stopped GUI session '${result.id}'.` : `GUI session '${result.id}' was not found.`);
+            }
+          )
+          .command(
+            "status",
+            "Show GUI session status",
+            (subCommand) =>
+              subCommand.option("id", { type: "string", describe: "Session ID" }),
+            async (argv) => {
+              if (argv.id) {
+                const session = await guiService.getSessionStatus(argv.id);
+                if (!session) {
+                  logger.warn(`GUI session '${argv.id}' was not found.`);
+                  return;
+                }
+
+                logger.box(`GUI Session
+ID: ${session.id}
+Active: ${session.active ? "yes" : "no"}
+Display: ${session.display}
+Size: ${session.width}x${session.height}x${session.depth}
+PID: ${session.pid}
+Mouse: ${session.mouse ? `${session.mouse.x},${session.mouse.y}` : "n/a"}
+Screenshots: ${session.screenshotDir}`);
+                return;
+              }
+
+              const sessions = await guiService.listSessions();
+              if (sessions.length === 0) {
+                logger.info("No GUI sessions found.");
+                return;
+              }
+
+              logger.box(`GUI Sessions
+${sessions.map((session) => `${session.id} ${session.active ? "active" : "inactive"} ${session.display} ${session.width}x${session.height}`).join("\n")}`);
+            }
+          )
+          .command(
+            "screenshot",
+            "Capture a screenshot from a GUI session",
+            (subCommand) =>
+              subCommand
+                .option("id", { type: "string", describe: "Session ID", default: "default" })
+                .option("label", { type: "string", describe: "Optional screenshot label" }),
+            async (argv) => {
+              const screenshot = await guiService.captureScreenshot({
+                id: argv.id,
+                label: argv.label
+              });
+              logger.info(`Saved screenshot to ${screenshot.path}.`);
+            }
+          )
+          .command(
+            "exec <command..>",
+            "Run a command inside a GUI session",
+            (subCommand) =>
+              subCommand
+                .option("id", { type: "string", describe: "Session ID", default: "default" })
+                .positional("command", {
+                  type: "string",
+                  array: true,
+                  describe: "Shell command to run"
+                }),
+            async (argv) => {
+              const command = Array.isArray(argv.command) ? argv.command.join(" ") : String(argv.command ?? "");
+              const result = await guiService.runInSession(argv.id, command);
+              logger.box(`GUI Exec
+Session: ${result.session.id}
+Stdout:
+${result.stdout || "[no output]"}
+
+Stderr:
+${result.stderr || "[no output]"}`);
+            }
+          )
+          .demandCommand(1, "Choose a gui command: `doctor`, `start`, `stop`, `status`, `screenshot`, or `exec`.")
+          .strict()
+    )
+    .command(
       "update",
       "Check for updates, pull from git, and optionally restart the installed gateway service",
       (command) =>
@@ -333,7 +466,7 @@ Definition: ${status.definitionPath}`);
         });
       }
     )
-    .demandCommand(1, "Choose `auth`, `gateway`, `update`, `bootstrap`, `pair`, or `cli`.")
+    .demandCommand(1, "Choose `auth`, `gateway`, `gui`, `update`, `bootstrap`, `pair`, or `cli`.")
     .strict()
     .help()
     .parseAsync();

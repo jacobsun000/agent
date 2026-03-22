@@ -9,7 +9,7 @@ This repository runs a provider-backed agent as a long-lived local service. It p
 - **HTTP channel** for local apps to send messages and receive streamed replies
 - **Telegram channel** for chatting with the agent through a bot
 - **Session and pairing flow** keyed by channel + chat ID
-- **Built-in tools** such as shell execution, sub-agents, cron jobs, file sending, and local image read
+- **Built-in tools** such as shell execution, sub-agents, cron jobs, file sending, local image read, and headless GUI actions
 - **Supporting services** for heartbeat reports, scheduling, transcription, and attachment storage
 - **Workspace bootstrapping** under `~/.agent/` for config, memory, heartbeat, and cron data
 
@@ -126,6 +126,10 @@ agent gateway stop
 agent gateway restart
 agent gateway uninstall
 agent gateway status
+agent gui doctor
+agent gui start --id default
+agent gui screenshot --id default
+agent gui exec --id default -- xmessage "hello"
 agent update
 agent bootstrap
 agent pair <code>
@@ -137,9 +141,43 @@ Notes:
 - `gateway run`: run the gateway in the foreground
 - `bootstrap`: interactively write `~/.agent/config.jsonc`
 - `gateway install/start/stop/...`: manage the installed user service
+- `gui`: manage headless Linux GUI sessions with Xvfb, screenshots, and DISPLAY-scoped command execution
 - `update`: fetch from git, fast-forward pull when available, optionally refresh dependencies, and restart the installed gateway service
 - `pair <code>`: approve a pending pairing code
 - `cli`: open a local CLI session that talks to the HTTP gateway
+
+### Headless GUI capability
+
+The gateway now includes GUI-oriented tools and CLI helpers aimed at Linux headless servers:
+
+- `gui_session`: start, stop, inspect, list, and doctor Xvfb-backed sessions
+- `gui_screenshot`: capture the current root-window screenshot and feed the image back to the model
+- `gui_input`: move/click mouse, type text, press keys, and emit scroll events with `xdotool`
+- `gui_shell`: launch programs inside a running GUI session with `DISPLAY` preconfigured
+
+Runtime prerequisites currently expected on the host:
+
+- `Xvfb`
+- `xdotool`
+- ImageMagick `import`
+- `xrandr`
+
+Example:
+
+```bash
+pnpm start -- gui doctor
+pnpm start -- gui start --id demo --width 1280 --height 800
+pnpm start -- gui exec --id demo -- xmessage "GUI session is live"
+pnpm start -- gui screenshot --id demo --label initial
+pnpm start -- gui stop --id demo
+```
+
+Notes:
+
+- sessions persist metadata under `~/.agent/workspace/gui/`
+- set `AGENT_GUI_ROOT=/some/path` to override the GUI state directory, which is useful in restricted or sandboxed environments
+- the default implementation starts a bare X11 display via `Xvfb`; a full desktop session or window manager is optional and can be launched through `gui exec` or `gui_session start` with `command`
+- scrolling is synthesized through X11 wheel button events, so it is step-based rather than pixel-perfect
 
 ### Auto-update
 

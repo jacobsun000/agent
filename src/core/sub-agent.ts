@@ -7,6 +7,10 @@ import { createWebFetchTool } from "@/core/tools/web-fetch";
 import { createWebSearchTool } from "@/core/tools/web-search";
 import { Statistics } from "@/core/statistics";
 import { createReadImageTool } from "./tools/read-image";
+import { createGuiSessionTool } from "./tools/gui-session";
+import { createGuiScreenshotTool } from "./tools/gui-screenshot";
+import { createGuiInputTool } from "./tools/gui-input";
+import { createGuiShellTool } from "./tools/gui-shell";
 
 const SUB_AGENT_CLI_TIMEOUT_MS = 60 * 60 * 1_000; // 1 hour
 const MAX_CONTEXT_WINDOW = 512000;
@@ -45,7 +49,11 @@ export class SubAgent {
         exec: createExecTool(SUB_AGENT_CLI_TIMEOUT_MS),
         web_search: createWebSearchTool({ tavily: this.tavily }),
         web_fetch: createWebFetchTool({ tavily: this.tavily }),
-        read_image: createReadImageTool()
+        read_image: createReadImageTool(),
+        gui_session: createGuiSessionTool(),
+        gui_screenshot: createGuiScreenshotTool(),
+        gui_input: createGuiInputTool(),
+        gui_shell: createGuiShellTool()
       },
       stopWhen: stepCountIs(this.maxIterations),
     });
