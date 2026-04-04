@@ -3,18 +3,17 @@
       "target": "ES2022",
       "module": "nodenext",
       "moduleResolution": "nodenext",
-      "baseUrl": ".",
-    "paths": {
-      "@/*": [
-        "src/*"
-      ]
+      "paths": {
+        "@/*": [
+          "./src/*"
+        ]
+      },
+      "outDir": "dist",
+      "rootDir": "src",
+      "strict": true,
+      "skipLibCheck": true
     },
-    "outDir": "dist",
-    "rootDir": "src",
-    "strict": true,
-    "skipLibCheck": true
-  },
-  "include": [
-    "src/**/*.ts"
-  ]
+    "include": [
+      "src/**/*.ts"
+    ]
   }
