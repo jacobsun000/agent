@@ -11,6 +11,7 @@ import { createGuiSessionTool } from "./tools/gui-session";
 import { createGuiScreenshotTool } from "./tools/gui-screenshot";
 import { createGuiInputTool } from "./tools/gui-input";
 import { createGuiShellTool } from "./tools/gui-shell";
+import { createComputerUseTool } from "./tools/computer-use";
 
 const SUB_AGENT_CLI_TIMEOUT_MS = 60 * 60 * 1_000; // 1 hour
 const MAX_CONTEXT_WINDOW = 512000;
@@ -50,6 +51,9 @@ export class SubAgent {
         web_search: createWebSearchTool({ tavily: this.tavily }),
         web_fetch: createWebFetchTool({ tavily: this.tavily }),
         read_image: createReadImageTool(),
+        computer_use: createComputerUseTool({
+          defaultSessionId: "subagent-default"
+        }),
         gui_session: createGuiSessionTool(),
         gui_screenshot: createGuiScreenshotTool(),
         gui_input: createGuiInputTool(),

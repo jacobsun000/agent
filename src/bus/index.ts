@@ -253,10 +253,11 @@ export class Bus {
 
   private async createReplyStream(channel: Channel, message: InboundMessage): Promise<OutboundMessageStream | undefined> {
     if (!this.enableStream || !channel.createReplyStream) {
+      const ensureMessage = (value: string) => value.trim() === "" ? "No response." : value;
       return {
         write: async () => { },
-        finish: async (finalMessage: string) => { channel.reply(message.chatId, finalMessage); },
-        fail: async (errorMessage: string) => { channel.reply(message.chatId, errorMessage); }
+        finish: async (finalMessage: string) => { channel.reply(message.chatId, ensureMessage(finalMessage)); },
+        fail: async (errorMessage: string) => { channel.reply(message.chatId, ensureMessage(errorMessage)); }
       }
     }
     try {

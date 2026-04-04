@@ -13,6 +13,7 @@ const WORKSPACE_PATH = path.join(CONFIG_PATH, "workspace");
 const MEMORY_PATH = path.join(WORKSPACE_PATH, "memory");
 const HISTORY_PATH = path.join(MEMORY_PATH, "history");
 const NOTES_PATH = path.join(MEMORY_PATH, "notes");
+const BROWSER_PATH = path.join(WORKSPACE_PATH, "browser");
 const JSONC_FORMATTING_OPTIONS = {
   insertSpaces: true,
   tabSize: 2
@@ -44,6 +45,7 @@ export async function bootstrapWorkspace(): Promise<void> {
   await copyMissingTree(TEMPLATE_ROOT, CONFIG_PATH);
   await mkdir(HISTORY_PATH, { recursive: true });
   await mkdir(NOTES_PATH, { recursive: true });
+  await mkdir(BROWSER_PATH, { recursive: true });
 }
 
 export async function bootstrapConfigInteractive(): Promise<void> {

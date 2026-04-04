@@ -58,6 +58,28 @@ const configSchema = z.object({
       interval: "1800",
       reportSession: DEFERRED_TELEGRAM_REPORT_SESSION
     }),
+  computerUse: z.object({
+    model: nonEmptyString.default("openai/gpt-5.4"),
+    maxSteps: z.int().positive().max(100).default(24),
+    reasoningEffort: z.enum(["low", "medium", "high"]).default("low"),
+    headless: z.boolean().default(true),
+    viewport: z.object({
+      width: z.int().positive().max(8192).default(1440),
+      height: z.int().positive().max(8192).default(900)
+    }).default({
+      width: 1440,
+      height: 900
+    })
+  }).default({
+    model: "openai/gpt-5.4",
+    maxSteps: 24,
+    reasoningEffort: "low",
+    headless: true,
+    viewport: {
+      width: 1440,
+      height: 900
+    }
+  }),
   web: z.object({
     tavilyApiKey: nonEmptyString
   }),
@@ -154,6 +176,29 @@ const configSchema = z.object({
     context.addIssue({
       code: "custom",
       path: ["agent", "transcriptionModel"],
+      message: error instanceof Error ? error.message : "Invalid model format."
+    });
+  }
+
+  try {
+    const computerUseProviderName = getProviderNameFromModel(value.computerUse.model);
+    if (computerUseProviderName !== "openai") {
+      context.addIssue({
+        code: "custom",
+        path: ["computerUse", "model"],
+        message: "Computer use currently requires an 'openai/<model>' model."
+      });
+    } else if (!seenProviders.has(computerUseProviderName)) {
+      context.addIssue({
+        code: "custom",
+        path: ["computerUse", "model"],
+        message: `No provider named '${computerUseProviderName}' configured in providers.`
+      });
+    }
+  } catch (error) {
+    context.addIssue({
+      code: "custom",
+      path: ["computerUse", "model"],
       message: error instanceof Error ? error.message : "Invalid model format."
     });
   }

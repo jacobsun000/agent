@@ -3,41 +3,44 @@ import { z } from "zod";
 
 import { guiService } from "@/services/gui";
 
-const guiInputSchema = z.discriminatedUnion("action", [
-  z.object({
-    action: z.literal("move_mouse"),
-    id: z.string().trim().min(1).optional(),
-    x: z.number().finite(),
-    y: z.number().finite()
-  }),
-  z.object({
-    action: z.literal("click"),
-    id: z.string().trim().min(1).optional(),
-    x: z.number().finite().optional(),
-    y: z.number().finite().optional(),
-    button: z.enum(["left", "middle", "right"]).optional(),
-    double: z.boolean().optional()
-  }),
-  z.object({
-    action: z.literal("type"),
-    id: z.string().trim().min(1).optional(),
-    text: z.string(),
-    delayMs: z.number().int().nonnegative().max(1000).optional()
-  }),
-  z.object({
-    action: z.literal("press_keys"),
-    id: z.string().trim().min(1).optional(),
-    keys: z.array(z.string().trim().min(1)).min(1)
-  }),
-  z.object({
-    action: z.literal("scroll"),
-    id: z.string().trim().min(1).optional(),
-    x: z.number().finite().optional(),
-    y: z.number().finite().optional(),
-    scrollX: z.number().finite().optional(),
-    scrollY: z.number().finite().optional()
-  })
-]);
+const guiInputSchema = z.object({
+  action: z.enum(["move_mouse", "click", "type", "press_keys", "scroll"]),
+  id: z.string().trim().min(1).optional(),
+  x: z.number().finite().optional(),
+  y: z.number().finite().optional(),
+  button: z.enum(["left", "middle", "right"]).optional(),
+  double: z.boolean().optional(),
+  text: z.string().optional(),
+  delayMs: z.number().int().nonnegative().max(1000).optional(),
+  keys: z.array(z.string().trim().min(1)).min(1).optional(),
+  scrollX: z.number().finite().optional(),
+  scrollY: z.number().finite().optional()
+}).superRefine((value, context) => {
+  switch (value.action) {
+    case "move_mouse":
+      if (value.x === undefined) {
+        context.addIssue({ code: "custom", path: ["x"], message: "`x` is required for move_mouse." });
+      }
+      if (value.y === undefined) {
+        context.addIssue({ code: "custom", path: ["y"], message: "`y` is required for move_mouse." });
+      }
+      return;
+    case "click":
+      return;
+    case "type":
+      if (value.text === undefined) {
+        context.addIssue({ code: "custom", path: ["text"], message: "`text` is required for type." });
+      }
+      return;
+    case "press_keys":
+      if (!value.keys || value.keys.length === 0) {
+        context.addIssue({ code: "custom", path: ["keys"], message: "`keys` is required for press_keys." });
+      }
+      return;
+    case "scroll":
+      return;
+  }
+});
 
 export function createGuiInputTool() {
   return tool({
@@ -47,15 +50,38 @@ export function createGuiInputTool() {
     async execute(input) {
       switch (input.action) {
         case "move_mouse":
-          return guiService.moveMouse(input);
+          return guiService.moveMouse({
+            id: input.id,
+            x: input.x!,
+            y: input.y!
+          });
         case "click":
-          return guiService.clickMouse(input);
+          return guiService.clickMouse({
+            id: input.id,
+            x: input.x,
+            y: input.y,
+            button: input.button,
+            double: input.double
+          });
         case "type":
-          return guiService.typeText(input);
+          return guiService.typeText({
+            id: input.id,
+            text: input.text!,
+            delayMs: input.delayMs
+          });
         case "press_keys":
-          return guiService.pressKeys(input);
+          return guiService.pressKeys({
+            id: input.id,
+            keys: input.keys!
+          });
         case "scroll":
-          return guiService.scroll(input);
+          return guiService.scroll({
+            id: input.id,
+            x: input.x,
+            y: input.y,
+            scrollX: input.scrollX,
+            scrollY: input.scrollY
+          });
       }
     }
   });

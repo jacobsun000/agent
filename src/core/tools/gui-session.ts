@@ -3,30 +3,14 @@ import { z } from "zod";
 
 import { guiService } from "@/services/gui";
 
-const guiSessionInputSchema = z.discriminatedUnion("action", [
-  z.object({
-    action: z.literal("start"),
-    id: z.string().trim().min(1).optional(),
-    width: z.number().int().positive().max(8192).optional(),
-    height: z.number().int().positive().max(8192).optional(),
-    depth: z.number().int().positive().max(32).optional(),
-    command: z.string().trim().min(1).optional()
-  }),
-  z.object({
-    action: z.literal("stop"),
-    id: z.string().trim().min(1).optional()
-  }),
-  z.object({
-    action: z.literal("status"),
-    id: z.string().trim().min(1).optional()
-  }),
-  z.object({
-    action: z.literal("list")
-  }),
-  z.object({
-    action: z.literal("doctor")
-  })
-]);
+const guiSessionInputSchema = z.object({
+  action: z.enum(["start", "stop", "status", "list", "doctor"]),
+  id: z.string().trim().min(1).optional(),
+  width: z.number().int().positive().max(8192).optional(),
+  height: z.number().int().positive().max(8192).optional(),
+  depth: z.number().int().positive().max(32).optional(),
+  command: z.string().trim().min(1).optional()
+});
 
 export function createGuiSessionTool() {
   return tool({
