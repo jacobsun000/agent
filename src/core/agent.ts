@@ -13,11 +13,6 @@ import { createCronTool, type CronToolInput } from "@/core/tools/cron";
 import { createWebSearchTool } from "@/core/tools/web-search";
 import { createWebFetchTool } from "@/core/tools/web-fetch";
 import { createReadImageTool } from "@/core/tools/read-image";
-import { createGuiSessionTool } from "@/core/tools/gui-session";
-import { createGuiScreenshotTool } from "@/core/tools/gui-screenshot";
-import { createGuiInputTool } from "@/core/tools/gui-input";
-import { createGuiShellTool } from "@/core/tools/gui-shell";
-import { createComputerUseTool } from "@/core/tools/computer-use";
 import { Statistics } from "@/core/statistics";
 
 
@@ -197,13 +192,6 @@ export class Agent {
         }
       }),
       read_image: createReadImageTool(),
-      computer_use: createComputerUseTool({
-        defaultSessionId: defaultComputerUseSessionId
-      }),
-      gui_session: createGuiSessionTool(),
-      gui_screenshot: createGuiScreenshotTool(),
-      gui_input: createGuiInputTool(),
-      gui_shell: createGuiShellTool()
     };
 
     if (this.enableWebTools) {
